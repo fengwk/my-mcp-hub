@@ -1,0 +1,2 @@
+fun.fengwk.mmh.core.CoreAutoConfiguration
+fun.fengwk.mmh.core.configuration.ConcurrentStdioServerTransportAutoConfiguration

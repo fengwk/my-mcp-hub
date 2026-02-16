@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: my-mcp-hub
+
+mmh:
+  http:
+    proxy:
+      # HTTP proxy (env: http_proxy)
+      http-proxy: ${http_proxy:}
+      # HTTPS proxy (env: https_proxy)
+      https-proxy: ${https_proxy:}
+  search:
+    searxng:
+      # SearXNG base url
+      base-url: ${SEARXNG_API_URL:}
+      # Request timeout in ms
+      timeout-ms: 10000
+      # Request method: GET/POST
+      method: POST

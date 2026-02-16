@@ -1,0 +1,48 @@
+#!/bin/bash
+
+script_home=$(readlink -f $(dirname $(readlink -f "$0")))
+app_home=$(readlink -f $(dirname $script_home))
+
+# 查找app java环境所在的目录
+java_home="$JAVA_HOME_17"
+if [ -z "$java_home" ]; then
+  java_home="$JAVA_HOME"
+fi
+if [ ! -d "$java_home" ]; then
+  echo "cannot found java_home: $java_home" >&2
+  exit 1
+fi
+# 查找java命令
+java_cmd="$java_home/bin/java"
+if [ ! -x "$java_cmd" ]; then
+  echo "cannot found executable java_cmd: $java_cmd" >&2
+  exit 1
+fi
+
+mcp_name=$1
+if [ -z "$mcp_name" ]; then
+    echo "Usage: mmh-cli {mcp-name}" >&2
+    echo "Example: mmh-cli util" >&2
+    exit 1
+fi
+
+jar_path=$(find "$app_home/cli/cli-$mcp_name/target" -maxdepth 1 -type f -name "my-mcp-hub-cli-$mcp_name-*.jar" ! -name "*.original" 2>/dev/null | head -n 1)
+
+if [ -z "$jar_path" ]; then
+    echo "Error: jar for mcp '$mcp_name' not found. Did you run 'scripts/app build'?" >&2
+    exit 1
+fi
+
+# 日志目录
+log_home="$HOME/.my-mcp-hub/logs"
+mkdir -p "$log_home"
+
+JAVA_OPTS="-server -Xss256k -Xms32M -Xmx512M"
+JAVA_OPTS="$JAVA_OPTS -Dspring.main.banner-mode=off"
+
+# 执行。使用 exec 确保信号传递。
+exec "$java_cmd" $JAVA_OPTS -jar "$jar_path" \
+    --spring.main.web-application-type=none \
+    --logging.file.path="$log_home" \
+    --logging.level.root=WARN \
+    --logging.level.fun.fengwk.mmh=INFO
