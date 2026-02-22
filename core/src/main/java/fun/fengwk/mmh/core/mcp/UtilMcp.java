@@ -2,6 +2,7 @@ package fun.fengwk.mmh.core.mcp;
 
 import fun.fengwk.mmh.core.facade.search.model.SearchResponse;
 import fun.fengwk.mmh.core.service.UtilMcpService;
+import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
 import fun.fengwk.mmh.core.utils.StringToolCallResultConverter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.tool.annotation.Tool;
@@ -51,6 +52,22 @@ public class UtilMcp {
         resultConverter = StringToolCallResultConverter.class)
     public String createTempDir() {
         return utilMcpService.createTempDir();
+    }
+
+    @Tool(name = "scrape",
+        description = """
+            Scrape a single web page and return one output format.
+            Supported format values: markdown, html, links, screenshot, fullscreenshot.
+            Returns extracted content, links, or screenshot base64. Returns error message when failed.""",
+        resultConverter = StringToolCallResultConverter.class)
+    public String scrape(
+        @ToolParam(description = "target page url (http/https). Provide a fully qualified URL") String url,
+        @ToolParam(description = "output format, default markdown. Choose one of: markdown/html/links/screenshot/fullscreenshot", required = false) String format,
+        @ToolParam(description = "whether to keep only main content, default false. Set true to focus on main content only", required = false) Boolean onlyMainContent,
+        @ToolParam(description = "wait in milliseconds after navigation, default 0. You can estimate a proper waitFor by checking the returned elapsedMs", required = false) Integer waitFor
+    ) {
+        ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, waitFor);
+        return mcpFormatter.format("mmh_scrape_result.ftl", response);
     }
 
 //    @Tool(name = "workflow_trace",

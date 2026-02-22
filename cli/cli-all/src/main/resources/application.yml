@@ -36,3 +36,27 @@ mmh:
       timeout-ms: 10000
       # Request method: GET/POST
       method: POST
+  browser:
+    # Shared browser snapshot root
+    snapshot-root: ${MMH_BROWSER_SNAPSHOT_ROOT:${user.home}/.mmh/browser-snapshots}
+    # Min worker count per process
+    worker-pool-min-size-per-process: 1
+    # Max worker count per process: use code default when omitted
+    # worker-pool-max-size-per-process: 4
+    # Release worker pool when idle for ttl
+    worker-idle-ttl-ms: 300000
+    # Wait time to acquire an idle worker
+    queue-offer-timeout-ms: 200
+    # Refresh snapshot after request
+    snapshot-refresh-on-request-end: true
+    # Publish lock timeout
+    snapshot-publish-lock-timeout-ms: 500
+    # profile id validation regex
+    profile-id-regex: ^[a-zA-Z0-9._-]{1,64}$
+  scrape:
+    # Default profile id for scrape requests
+    default-profile-id: master
+    # Page navigate timeout in ms
+    navigate-timeout-ms: 30000
+    # User data root for manual login mode
+    master-user-data-root: ${MMH_SCRAPE_MASTER_USER_DATA_ROOT:${user.home}/.mmh/browser-data}

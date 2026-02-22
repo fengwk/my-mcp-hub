@@ -4,6 +4,9 @@ import fun.fengwk.mmh.core.facade.search.SearchFacade;
 import fun.fengwk.mmh.core.facade.search.model.SearchRequest;
 import fun.fengwk.mmh.core.facade.search.model.SearchResponse;
 import fun.fengwk.mmh.core.service.UtilMcpService;
+import fun.fengwk.mmh.core.service.scrape.PageScrapeService;
+import fun.fengwk.mmh.core.service.scrape.model.ScrapeRequest;
+import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +22,7 @@ import java.nio.file.Path;
 public class UtilMcpServiceImpl implements UtilMcpService {
 
     private final SearchFacade searchFacade;
+    private final PageScrapeService pageScrapeService;
 
     @Override
     public SearchResponse search(String query, Integer limit, String timeRange, Integer page) {
@@ -39,6 +43,17 @@ public class UtilMcpServiceImpl implements UtilMcpService {
         } catch (IOException e) {
             return "create temp dir error: " + e.getMessage();
         }
+    }
+
+    @Override
+    public ScrapeResponse scrape(String url, String format, Boolean onlyMainContent, Integer waitFor) {
+        ScrapeRequest request = ScrapeRequest.builder()
+            .url(url)
+            .format(format)
+            .onlyMainContent(onlyMainContent)
+            .waitFor(waitFor)
+            .build();
+        return pageScrapeService.scrape(request);
     }
 
 }
