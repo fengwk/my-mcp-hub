@@ -8,9 +8,6 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-import java.util.Map;
-
 /**
  * @author fengwk
  */
@@ -56,24 +53,24 @@ public class UtilMcp {
         return utilMcpService.createTempDir();
     }
 
-    @Tool(name = "workflow_trace",
-        description = """
-            Trace the workflow execution status for the current round.
-            You runs in rounds, and each round either invokes tools or outputs answer text.
-            You must call this tool at the start of every non-final round.
-            Do not call it in the final answer summary.
-            Provide status, previous-round conclusion/blocker/hypothesis, and brief current-round actions.""",
-        resultConverter = StringToolCallResultConverter.class)
-    public String workflowTrace(
-        @ToolParam(description = "current workflow state label") String status,
-        @ToolParam(description = "previous round outcome, conclusion, blocker, hypothesis, or uncertainty") String progress,
-        @ToolParam(description = "brief descriptions of current round actions, one item per action") List<String> actions
-    ) {
-        return mcpFormatter.format("mmh_workflow_trace_result.ftl", Map.of(
-            "status", status,
-            "progress", progress,
-            "actions", actions == null ? List.of() : actions
-        ));
-    }
+//    @Tool(name = "workflow_trace",
+//        description = """
+//            Trace the workflow execution status for the current round.
+//            You runs in rounds, and each round either invokes tools or outputs answer text.
+//            You must call this tool at the start of every non-final round.
+//            Do not call it in the final answer summary.
+//            Provide status, previous-round conclusion/blocker/hypothesis, and brief current-round actions.""",
+//        resultConverter = StringToolCallResultConverter.class)
+//    public String workflowTrace(
+//        @ToolParam(description = "current workflow state label") String status,
+//        @ToolParam(description = "previous round outcome, conclusion, blocker, hypothesis, or uncertainty") String progress,
+//        @ToolParam(description = "brief descriptions of current round actions, one item per action") List<String> actions
+//    ) {
+//        return mcpFormatter.format("mmh_workflow_trace_result.ftl", Map.of(
+//            "status", status,
+//            "progress", progress,
+//            "actions", actions == null ? List.of() : actions
+//        ));
+//    }
 
 }

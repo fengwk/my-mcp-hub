@@ -10,9 +10,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -93,23 +90,6 @@ public class UtilMcpTest {
 
         assertThat(result).isEqualTo("/tmp/mmh-123");
         verify(utilMcpService).createTempDir();
-    }
-
-    @SuppressWarnings("unchecked")
-    @Test
-    public void testWorkflowTrace() {
-        List<String> actions = List.of("inspect code", "update tests");
-        when(mcpFormatter.format(any(String.class), any())).thenReturn("trace");
-
-        String result = utilsMcp.workflowTrace("PLAN", "search completed", actions);
-
-        assertThat(result).isEqualTo("trace");
-        ArgumentCaptor<Object> modelCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(mcpFormatter).format(eq("mmh_workflow_trace_result.ftl"), modelCaptor.capture());
-        Map<String, Object> model = (Map<String, Object>) modelCaptor.getValue();
-        assertThat(model).containsEntry("status", "PLAN");
-        assertThat(model).containsEntry("progress", "search completed");
-        assertThat(model).containsEntry("actions", actions);
     }
 
 }
