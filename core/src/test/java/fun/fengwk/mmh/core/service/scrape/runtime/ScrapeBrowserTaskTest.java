@@ -21,6 +21,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,7 +58,14 @@ public class ScrapeBrowserTaskTest {
         BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
 
         when(page.content()).thenReturn("<html><body>raw</body></html>");
-        when(htmlMainContentCleaner.clean("<html><body>raw</body></html>")).thenReturn("<main>cleaned</main>");
+        when(htmlMainContentCleaner.clean(
+            "<html><body>raw</body></html>",
+            "https://example.com",
+            true,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        ))
+            .thenReturn("<main>cleaned</main>");
 
         ScrapeBrowserTask task = new ScrapeBrowserTask(
             request,
@@ -73,7 +81,7 @@ public class ScrapeBrowserTaskTest {
 
         assertThat(response.getStatusCode()).isEqualTo(200);
         assertThat(response.getContent()).isEqualTo("<main>cleaned</main>");
-        verify(page).waitForLoadState(LoadState.NETWORKIDLE);
+        verify(page).waitForLoadState(eq(LoadState.NETWORKIDLE), any(Page.WaitForLoadStateOptions.class));
         verify(page, never()).waitForTimeout(anyDouble());
     }
 
@@ -88,6 +96,14 @@ public class ScrapeBrowserTaskTest {
         BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
 
         when(page.content()).thenReturn("<html><body>raw</body></html>");
+        when(htmlMainContentCleaner.clean(
+            "<html><body>raw</body></html>",
+            "https://example.com",
+            false,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        ))
+            .thenReturn("<html><body>raw</body></html>");
 
         ScrapeBrowserTask task = new ScrapeBrowserTask(
             request,
@@ -116,10 +132,25 @@ public class ScrapeBrowserTaskTest {
         BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
 
         when(page.content()).thenReturn("<html><body>raw</body></html>");
-        when(htmlMainContentCleaner.clean("<html><body>raw</body></html>")).thenReturn("<main></main>");
-        when(markdownRenderer.render("<main></main>")).thenReturn("   ");
+        when(htmlMainContentCleaner.clean(
+            "<html><body>raw</body></html>",
+            "https://example.com",
+            true,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        ))
+            .thenReturn("<main></main>");
+        when(htmlMainContentCleaner.clean(
+            "<html><body>raw</body></html>",
+            "https://example.com",
+            false,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        ))
+            .thenReturn("<html><body>raw</body></html>");
+        when(markdownRenderer.render("<main></main>", "https://example.com")).thenReturn("   ");
         when(markdownPostProcessor.process("   ")).thenReturn("");
-        when(markdownRenderer.render("<html><body>raw</body></html>")).thenReturn("raw");
+        when(markdownRenderer.render("<html><body>raw</body></html>", "https://example.com")).thenReturn("raw");
         when(markdownPostProcessor.process("raw")).thenReturn("raw");
 
         ScrapeBrowserTask task = new ScrapeBrowserTask(
@@ -148,6 +179,14 @@ public class ScrapeBrowserTaskTest {
         BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
 
         when(page.content()).thenReturn("<html><body>raw</body></html>");
+        when(htmlMainContentCleaner.clean(
+            "<html><body>raw</body></html>",
+            "https://example.com",
+            false,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        ))
+            .thenReturn("<html><body>raw</body></html>");
         when(linkExtractor.extract("<html><body>raw</body></html>", "https://example.com"))
             .thenReturn(List.of("https://a.com"));
 
@@ -164,7 +203,13 @@ public class ScrapeBrowserTaskTest {
         ScrapeResponse response = task.execute(context);
 
         assertThat(response.getLinks()).containsExactly("https://a.com");
-        verify(htmlMainContentCleaner, never()).clean(any());
+        verify(htmlMainContentCleaner).clean(
+            "<html><body>raw</body></html>",
+            "https://example.com",
+            false,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        );
     }
 
 }

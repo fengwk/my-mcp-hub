@@ -20,7 +20,7 @@
 | T2 | 设计并实现通用 `BrowserTask`/`BrowserTaskExecutor` 抽象 | 高 | T1 | pending | `scrape` 通过通用执行器运行，不直接依赖具体工具逻辑 |
 | T3 | 实现通用 `BrowserWorkerManager`（进程内池化、限流、超时） | 高 | T2 | pending | 支持多请求并发执行，出现超载时返回可识别错误 |
 | T4 | 抽取快照协调层（初始化、读写、CAS 发布、锁）到 `service/browser/coordination` | 高 | T2 | pending | `master` 自动初始化，CAS 防回滚生效 |
-| T5 | 落地登录命令链路（`scripts/mmh-master-login` + CLI 入口） | 高 | T4 | pending | headed 登录后可持续发布快照并安全退出 |
+| T5 | 落地登录命令链路（`mmh-cli open-browser`，profile 由配置提供） | 高 | T4 | pending | headed 登录后可持续发布快照并安全退出 |
 | T6 | 接入 `scrape` 工具（参数校验、格式输出、等待策略） | 高 | T3,T4 | pending | `markdown/html/links/screenshot/fullscreenshot` 单格式输出可用 |
 | T7 | 页面解析链路（正文清理、Markdown 渲染、后处理、质量门禁） | 中 | T6 | pending | `onlyMainContent` 与回退逻辑符合设计 |
 | T8 | 配置拆分：公共项迁移到 `mmh.browser.*`，保留 `mmh.scrape.*` 业务项 | 中 | T3,T4,T6 | pending | 双配置兼容策略明确并有测试覆盖 |
@@ -30,7 +30,7 @@
 ## 4. 外部阻塞与待解决事项
 
 - Playwright 浏览器二进制下载与运行环境依赖（CI/离线环境）
-- `mmh-master-login` 在不同桌面环境下的可用性（无头服务器不支持 headed）
+- `mmh-cli open-browser` 在不同桌面环境下的可用性（无头服务器不支持 headed）
 - 跨进程文件锁在不同文件系统上的行为一致性（本地磁盘优先）
 
 ## 5. 待确认事项

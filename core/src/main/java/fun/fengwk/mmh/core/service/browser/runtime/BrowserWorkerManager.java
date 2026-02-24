@@ -1,214 +1,303 @@
 package fun.fengwk.mmh.core.service.browser.runtime;
 
+import com.microsoft.playwright.Browser;
+import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.Playwright;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.ArrayList;
+import java.util.List;
+import java.nio.file.Paths;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Worker manager with bounded parallelism.
+ * Worker manager with blocking queue and per-worker browser.
  *
  * @author fengwk
  */
+@Slf4j
 @Component
 public class BrowserWorkerManager {
 
-    private static final int MAX_SUBMIT_RETRIES = 2;
-
     private final BrowserProperties browserProperties;
+    private final BrowserSessionFactory browserSessionFactory;
+    private final BlockingQueue<TaskHolder<?>> queue;
+    private final List<Thread> workerThreads = new CopyOnWriteArrayList<>();
+    private final AtomicInteger workerIdGen = new AtomicInteger(1);
+    private final AtomicInteger workerCount = new AtomicInteger(0);
+    private final AtomicInteger idleWorkers = new AtomicInteger(0);
+    private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
-    private final AtomicInteger threadIdGen = new AtomicInteger(1);
-    private final AtomicInteger activeTaskCount = new AtomicInteger(0);
-    private final AtomicLong lastActiveAt = new AtomicLong(System.currentTimeMillis());
-    private final ScheduledExecutorService idleReaper;
-
-    private volatile ThreadPoolExecutor executorService;
-    private volatile Semaphore workerPermits;
-    private volatile int maxWorkerSize;
-
+    @Autowired
     public BrowserWorkerManager(BrowserProperties browserProperties) {
-        this.browserProperties = browserProperties;
-        this.idleReaper = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable);
-            thread.setName("mmh-browser-worker-reaper");
-            thread.setDaemon(true);
-            return thread;
-        });
-        startIdleReaper();
+        this(browserProperties, defaultBrowserSessionFactory(browserProperties));
     }
 
-    public <T> T execute(Callable<T> task) {
+    BrowserWorkerManager(BrowserProperties browserProperties, BrowserSessionFactory browserSessionFactory) {
+        this.browserProperties = browserProperties;
+        this.browserSessionFactory = browserSessionFactory;
+        int capacity = Math.max(1, browserProperties.getRequestQueueCapacity());
+        this.queue = new LinkedBlockingQueue<>(capacity);
+        startMinWorkers();
+    }
+
+    public <T> T execute(BrowserSessionTask<T> task) {
+        TaskHolder<T> holder = new TaskHolder<>(task);
         try {
-            for (int attempt = 1; attempt <= MAX_SUBMIT_RETRIES; attempt++) {
-                WorkerHandle workerHandle = acquireWorkerHandle();
-                activeTaskCount.incrementAndGet();
-                touchActiveTime();
-                try {
-                    Future<T> future = workerHandle.executorService.submit(task);
-                    return future.get();
-                } catch (RejectedExecutionException ex) {
-                    if (attempt < MAX_SUBMIT_RETRIES && isStaleExecutor(workerHandle.executorService)) {
-                        continue;
-                    }
-                    throw new IllegalStateException("worker pool is busy", ex);
-                } finally {
-                    activeTaskCount.decrementAndGet();
-                    touchActiveTime();
-                    workerHandle.workerPermits.release();
-                }
+            boolean offered = queue.offer(
+                holder,
+                browserProperties.getQueueOfferTimeoutMs(),
+                TimeUnit.MILLISECONDS
+            );
+            if (!offered) {
+                log.warn("worker queue full, size={}, capacity={}", queue.size(), browserProperties.getRequestQueueCapacity());
+                throw new IllegalStateException("worker pool is busy");
             }
-            throw new IllegalStateException("worker pool is busy");
+            ensureWorkerCapacity();
+            return holder.future.get();
         } catch (IllegalStateException ex) {
             throw ex;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            log.warn("worker execution interrupted");
             throw new IllegalStateException("browser worker execution interrupted", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+            log.warn("worker execution failed", cause);
+            throw new IllegalStateException("browser worker execution failed: " + cause.getMessage(), cause);
         } catch (Exception ex) {
+            log.warn("worker execution failed", ex);
             throw new IllegalStateException("browser worker execution failed: " + ex.getMessage(), ex);
         }
     }
 
-    private WorkerHandle acquireWorkerHandle() throws InterruptedException {
-        ThreadPoolExecutor currentExecutor;
-        Semaphore currentPermits;
-        synchronized (this) {
-            ensureInitialized();
-            currentExecutor = executorService;
-            currentPermits = workerPermits;
-        }
-        if (currentExecutor == null || currentPermits == null) {
-            throw new IllegalStateException("worker pool is busy");
-        }
-        boolean acquired = currentPermits.tryAcquire(
-            browserProperties.getQueueOfferTimeoutMs(),
-            TimeUnit.MILLISECONDS
-        );
-        if (!acquired) {
-            throw new IllegalStateException("worker pool is busy");
-        }
-        return new WorkerHandle(currentExecutor, currentPermits);
-    }
-
-    private boolean isStaleExecutor(ThreadPoolExecutor executor) {
-        return executor.isShutdown() || executorService != executor;
-    }
-
-    private void ensureInitialized() {
-        if (executorService != null) {
-            return;
-        }
-        synchronized (this) {
-            if (executorService != null) {
-                return;
-            }
-            int minWorkerSize = normalizeMinWorkerSize();
-            int maxWorkerSize = normalizeMaxWorkerSize(minWorkerSize);
-            executorService = new ThreadPoolExecutor(
-                minWorkerSize,
-                maxWorkerSize,
-                60L,
-                TimeUnit.SECONDS,
-                new SynchronousQueue<>(),
-                runnable -> {
-                    Thread thread = new Thread(runnable);
-                    thread.setName("mmh-browser-worker-" + threadIdGen.getAndIncrement());
-                    thread.setDaemon(true);
-                    return thread;
-                }
-            );
-            executorService.allowCoreThreadTimeOut(false);
-            workerPermits = new Semaphore(maxWorkerSize);
-            this.maxWorkerSize = maxWorkerSize;
+    private void startMinWorkers() {
+        int minSize = normalizeMinWorkerSize();
+        for (int i = 0; i < minSize; i++) {
+            spawnWorker();
         }
     }
 
-    private void startIdleReaper() {
-        long idleTtlMs = browserProperties.getWorkerIdleTtlMs();
-        if (idleTtlMs <= 0) {
+    private void ensureWorkerCapacity() {
+        if (shutdown.get()) {
             return;
         }
-        long checkIntervalMs = Math.max(1000L, Math.min(idleTtlMs, 10000L));
-        idleReaper.scheduleWithFixedDelay(
-            this::releaseIdleWorkerPool,
-            checkIntervalMs,
-            checkIntervalMs,
-            TimeUnit.MILLISECONDS
-        );
+        if (idleWorkers.get() > 0) {
+            return;
+        }
+        int maxSize = normalizeMaxWorkerSize();
+        while (workerCount.get() < maxSize && idleWorkers.get() == 0 && queue.size() > 0) {
+            spawnWorker();
+        }
     }
 
-    private void releaseIdleWorkerPool() {
-        long idleTtlMs = browserProperties.getWorkerIdleTtlMs();
-        if (idleTtlMs <= 0) {
+    private void spawnWorker() {
+        int maxSize = normalizeMaxWorkerSize();
+        int current = workerCount.get();
+        if (current >= maxSize) {
             return;
         }
-        ThreadPoolExecutor currentExecutor = executorService;
-        Semaphore currentPermits = workerPermits;
-        if (currentExecutor == null || currentPermits == null) {
+        if (!workerCount.compareAndSet(current, current + 1)) {
             return;
         }
-        if (activeTaskCount.get() > 0) {
-            return;
-        }
-        if (currentPermits.availablePermits() != maxWorkerSize) {
-            return;
-        }
-        if (System.currentTimeMillis() - lastActiveAt.get() < idleTtlMs) {
-            return;
-        }
-
-        synchronized (this) {
-            if (executorService == null || workerPermits == null) {
-                return;
-            }
-            if (activeTaskCount.get() > 0) {
-                return;
-            }
-            if (workerPermits.availablePermits() != maxWorkerSize) {
-                return;
-            }
-            if (System.currentTimeMillis() - lastActiveAt.get() < idleTtlMs) {
-                return;
-            }
-            executorService.shutdownNow();
-            executorService = null;
-            workerPermits = null;
-            maxWorkerSize = 0;
-        }
+        Thread thread = new Thread(new Worker(workerIdGen.getAndIncrement()));
+        thread.setName("mmh-browser-worker-" + thread.getId());
+        thread.setDaemon(true);
+        workerThreads.add(thread);
+        thread.start();
     }
 
     private int normalizeMinWorkerSize() {
         return Math.max(browserProperties.getWorkerPoolMinSizePerProcess(), 1);
     }
 
-    private int normalizeMaxWorkerSize(int minWorkerSize) {
-        return Math.max(browserProperties.getWorkerPoolMaxSizePerProcess(), minWorkerSize);
+    private int normalizeMaxWorkerSize() {
+        return Math.max(browserProperties.getWorkerPoolMaxSizePerProcess(), normalizeMinWorkerSize());
     }
 
-    private void touchActiveTime() {
-        lastActiveAt.set(System.currentTimeMillis());
+    private long normalizeRefreshIntervalMs() {
+        return Math.max(1L, browserProperties.getWorkerRefreshIntervalMs());
     }
 
-    private record WorkerHandle(ThreadPoolExecutor executorService, Semaphore workerPermits) {}
+    private boolean shouldTerminate(long lastTaskAt) {
+        long idleTtlMs = browserProperties.getWorkerIdleTtlMs();
+        if (idleTtlMs <= 0) {
+            return false;
+        }
+        if (System.currentTimeMillis() - lastTaskAt < idleTtlMs) {
+            return false;
+        }
+        return workerCount.get() > normalizeMinWorkerSize();
+    }
 
     @PreDestroy
     public void shutdown() {
-        ExecutorService current = executorService;
-        if (current != null) {
-            current.shutdownNow();
+        if (!shutdown.compareAndSet(false, true)) {
+            return;
         }
-        idleReaper.shutdownNow();
+        List<TaskHolder<?>> pending = new ArrayList<>();
+        queue.drainTo(pending);
+        for (TaskHolder<?> holder : pending) {
+            holder.future.completeExceptionally(new IllegalStateException("worker pool is shutting down"));
+        }
+        for (Thread thread : workerThreads) {
+            thread.interrupt();
+        }
+    }
+
+    private static class TaskHolder<T> {
+
+        private final BrowserSessionTask<T> task;
+        private final CompletableFuture<T> future = new CompletableFuture<>();
+
+        private TaskHolder(BrowserSessionTask<T> task) {
+            this.task = task;
+        }
+
+    }
+
+    private class Worker implements Runnable {
+
+        private final int workerId;
+        private long lastTaskAt = System.currentTimeMillis();
+        private BrowserSession browserSession;
+
+        private Worker(int workerId) {
+            this.workerId = workerId;
+        }
+
+        @Override
+        public void run() {
+            try {
+                initBrowser();
+                loop();
+            } catch (Exception ex) {
+                log.warn("worker terminated unexpectedly, id={}", workerId, ex);
+            } finally {
+                closeBrowser();
+                workerCount.decrementAndGet();
+                workerThreads.remove(Thread.currentThread());
+            }
+        }
+
+        private void initBrowser() {
+            browserSession = browserSessionFactory.create();
+        }
+
+        private void loop() throws Exception {
+            long refreshIntervalMs = normalizeRefreshIntervalMs();
+            while (!shutdown.get()) {
+                TaskHolder<?> holder;
+                idleWorkers.incrementAndGet();
+                try {
+                    // Polling interval also gates idle checks and worker retirement.
+                    holder = queue.poll(refreshIntervalMs, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } finally {
+                    idleWorkers.decrementAndGet();
+                }
+                if (holder == null) {
+                    if (shouldTerminate(lastTaskAt)) {
+                        return;
+                    }
+                    continue;
+                }
+                lastTaskAt = System.currentTimeMillis();
+                executeTask(holder);
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private <T> void executeTask(TaskHolder<T> holder) {
+            try {
+                T result = holder.task.execute(browserSession.browser());
+                holder.future.complete(result);
+            } catch (Exception ex) {
+                log.warn("worker task failed, id={}, error={}", workerId, ex.getMessage(), ex);
+                holder.future.completeExceptionally(ex);
+            }
+        }
+
+        private void closeBrowser() {
+            if (browserSession != null) {
+                try {
+                    browserSession.close();
+                } catch (Exception ex) {
+                    log.debug("failed to close browser, id={}, error={}", workerId, ex.getMessage());
+                }
+            }
+        }
+
+    }
+
+    private static BrowserSessionFactory defaultBrowserSessionFactory(BrowserProperties browserProperties) {
+        return () -> {
+            Playwright playwright = Playwright.create();
+            BrowserType.LaunchOptions options = new BrowserType.LaunchOptions().setHeadless(true);
+            if (browserProperties != null) {
+                if (browserProperties.isIgnoreAllDefaultArgs()) {
+                    options.setIgnoreAllDefaultArgs(true);
+                } else if (browserProperties.getIgnoreDefaultArgs() != null
+                    && !browserProperties.getIgnoreDefaultArgs().isEmpty()) {
+                    options.setIgnoreDefaultArgs(browserProperties.getIgnoreDefaultArgs());
+                }
+                if (browserProperties.getLaunchArgs() != null && !browserProperties.getLaunchArgs().isEmpty()) {
+                    options.setArgs(browserProperties.getLaunchArgs());
+                }
+                if (browserProperties.getBrowserChannel() != null && !browserProperties.getBrowserChannel().isBlank()) {
+                    options.setChannel(browserProperties.getBrowserChannel());
+                }
+                if (browserProperties.getExecutablePath() != null && !browserProperties.getExecutablePath().isBlank()) {
+                    options.setExecutablePath(Paths.get(browserProperties.getExecutablePath()));
+                }
+            }
+            Browser browser = playwright.chromium().launch(options);
+            return new BrowserSession(playwright, browser);
+        };
+    }
+
+    interface BrowserSessionFactory {
+
+        BrowserSession create();
+
+    }
+
+    static class BrowserSession implements AutoCloseable {
+
+        private final Playwright playwright;
+        private final Browser browser;
+
+        BrowserSession(Playwright playwright, Browser browser) {
+            this.playwright = playwright;
+            this.browser = browser;
+        }
+
+        private Browser browser() {
+            return browser;
+        }
+
+        @Override
+        public void close() {
+            try {
+                browser.close();
+            } finally {
+                playwright.close();
+            }
+        }
+
     }
 
 }

@@ -12,7 +12,7 @@
 
 ## 1.2 功能范围
 
-1. 新增 MCP 工具：`scrape(url, format, onlyMainContent, waitFor, profileId)`。
+1. 新增 MCP 工具：`scrape(url, format, onlyMainContent, waitFor)`。
 2. 每次请求仅返回一种格式结果。
 3. 抓取默认使用 headless。
 4. 提供独立登录命令（脚本/CLI）用于人工启动 `master` 的 headed 会话并发布快照。
@@ -49,7 +49,7 @@
 
 ## 1.5 关键术语
 
-1. `profileId`：逻辑会话空间键（可按“1 账号 = 1 profileId”组织）。
+1. `profileId`：逻辑会话空间键（用于登录命令与快照隔离，不对 Agent 暴露）。
 2. `master`：默认 `profileId`，用于共享登录态。
 3. 快照：`storageState` 导出结果（JSON）。
 
@@ -60,7 +60,7 @@
 ```mermaid
 flowchart TD
   subgraph LOGIN["登录命令链路"]
-    U["User"] --> CMD["mmh-master-login --profile master"]
+    U["User"] --> CMD["mmh-cli open-browser"]
     CMD --> PCTX["Headed Persistent Context(master userDataDir)"]
     PCTX --> SNAP["Snapshot Files(state.json/meta.json)"]
   end
@@ -107,8 +107,7 @@ public String scrape(
     String url,
     String format,
     Boolean onlyMainContent,
-    Integer waitFor,
-    String profileId
+    Integer waitFor
 )
 ```
 
@@ -118,21 +117,20 @@ public String scrape(
 | --- | --- | --- |
 | `url` | 无 | 必填，`http/https` |
 | `format` | `markdown` | `markdown/html/links/screenshot/fullscreenshot` |
-| `onlyMainContent` | `true` | 可空，空则默认 true |
+| `onlyMainContent` | `false` | 可空，空则默认 false |
 | `waitFor` | `0` | `0 <= waitFor <= 60000` |
-| `profileId` | `master` | 可空；仅允许 `[a-zA-Z0-9._-]{1,64}`，禁止路径分隔符 |
 
-### 2.2.2 登录命令：`mmh-master-login`
+### 2.2.2 登录命令：`mmh-cli open-browser`
 
 脚本命令：
 
 ```bash
-scripts/mmh-master-login --profile master
+scripts/mmh-cli open-browser
 ```
 
 命令行为：
 
-1. 初始化快照空间（不存在则创建）。
+1. 从配置读取 `default-profile-id` 并初始化快照空间（不存在则创建）。
 2. 获取 `login.lock`（防止并发登录命令冲突）。
 3. 打开 headed persistent context（指定 `master userDataDir`）。
 4. 用户登录期间按固定间隔发布快照。
@@ -143,7 +141,7 @@ scripts/mmh-master-login --profile master
 共享快照目录：
 
 ```text
-${mmh.scrape.snapshot-root}/
+${mmh.browser.snapshot-root}/
   master/
     state.json
     meta.json
@@ -166,12 +164,11 @@ ${mmh.scrape.snapshot-root}/
 
 ```java
 ScrapeResponse scrape(ScrapeRequest req) {
-    String pid = normalizeProfileId(req.getProfileId());
-    snapshotBootstrap.ensureInitialized(pid);
+    String pid = defaultProfileId();
     StorageStateSnapshot snapshot = snapshotStore.readLatest(pid);
 
     return workerExecutor.executeHeadless(req, snapshot, context -> {
-        snapshotPublisher.tryPublishAsync(pid, context); // debounce + single-flight
+        snapshotPublisher.publishFromContext(pid, context); // CAS publish
     });
 }
 ```
@@ -199,7 +196,8 @@ void login(String profileId) {
 
 初始化规则：
 
-1. `mkdir -p snapshotRoot/profileId/tmp`。
+1. 系统启动时初始化默认 profile（`default-profile-id`）。
+2. `mkdir -p snapshotRoot/profileId/tmp`。
 2. 若 `state.json/meta.json` 缺失，写入初始版本（`version=0`）。
 3. 文件发布采用“临时文件 + 原子 rename”，避免半写入。
 
@@ -253,7 +251,7 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 
 ### 2.5.4 `profileId` 安全约束
 
-1. `profileId` 必须命中 `profile-id-regex`。
+1. 登录命令的 `profileId` 必须命中 `profile-id-regex`。
 2. 禁止包含 `/`、`\\`、`..` 等路径穿越片段。
 3. 实际路径统一由 `Path.resolve(profileId).normalize()` 生成，并校验仍位于 `snapshot-root` 下。
 
@@ -262,7 +260,7 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 1. `waitFor` 与 `smartWait` 互斥：
    - `waitFor > 0` 用固定等待；
    - 否则执行 `smartWait`。
-2. `onlyMainContent=true` 时进行正文清理。
+2. `onlyMainContent=true` 时进行正文清理（默认 false 不清理）。
 3. markdown 为空时回退全量内容再转换。
 4. Markdown 采用“渲染 + 后处理 + 质量门禁”链路，质量目标不低于 firecrawl 基线。
 
@@ -278,9 +276,9 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 | `BrowserRuntimeContext` | `.../service/browser/runtime/BrowserRuntimeContext.java` | 暴露 Page/Context/元信息给任务实现 |
 | `SnapshotBootstrap` | `.../service/browser/coordination/SnapshotBootstrap.java` | 快照空间初始化 |
 | `SnapshotStore` | `.../service/browser/coordination/SnapshotStore.java` | 快照读写与版本管理 |
-| `SnapshotPublisher` | `.../service/browser/coordination/SnapshotPublisher.java` | 异步快照发布（CAS + debounce） |
+| `SnapshotPublisher` | `.../service/browser/coordination/SnapshotPublisher.java` | 快照发布（CAS） |
 | `LoginLockManager` | `.../service/browser/coordination/LoginLockManager.java` | 登录命令锁 |
-| `MasterLoginRuntime` | `.../service/browser/runtime/MasterLoginRuntime.java` | headed 登录运行时 |
+| `MasterLoginRuntime` | `.../service/scrape/runtime/MasterLoginRuntime.java` | headed 登录运行时 |
 
 ### 2.7.2 新增类（scrape 适配层）
 
@@ -306,8 +304,7 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 
 ### 2.7.4 脚本与 CLI
 
-1. 新增 `scripts/mmh-master-login`。
-2. 在 `cli-util` 增加 `master-login` 命令入口，脚本调用该入口执行登录流程。
+1. 在 `cli-util` 增加 `open-browser` 命令入口，`mmh-cli open-browser` 作为 `mmh-cli util --open-browser` 快捷方式。
 
 ## 2.8 依赖与配置
 
@@ -323,36 +320,27 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `default-profile-id` | `master` | 默认会话空间 |
-| `snapshot-root` | `${user.home}/.mmh/browser-snapshots` | 快照目录 |
-| `master-user-data-root` | `${user.home}/.mmh/browser-data` | 登录命令 persistent profile 根目录 |
-| `worker-pool-size-per-process` | `4` | 每进程 worker 数（后续迁移到 `mmh.browser.*`） |
-| `request-queue-capacity` | `200` | 请求队列容量（后续迁移到 `mmh.browser.*`） |
-| `queue-offer-timeout-ms` | `200` | 入队超时（后续迁移到 `mmh.browser.*`） |
-| `snapshot-refresh-on-request-end` | `true` | 请求结束刷新 |
-| `snapshot-refresh-interval-ms` | `30000` | 周期刷新兜底 |
-| `snapshot-refresh-debounce-ms` | `500` | 刷新合并窗口 |
-| `master-login-refresh-interval-ms` | `5000` | 登录命令刷新间隔 |
+| `navigate-timeout-ms` | `30000` | 页面导航超时 |
+| `master-user-data-root` | `${user.home}/.my-mcp-hub/browser-data` | 登录命令 persistent profile 根目录 |
+| `master-login-args` | 空 | 登录命令浏览器启动参数（可用 `--start-maximized` 或 `--window-size=`） |
+| `master-login-initial-page-url` | 空 | 登录命令启动后打开的页面 |
+| `master-login-refresh-interval-ms` | `0` | 登录命令刷新间隔（0 表示不做周期刷新，仅在退出时发布） |
 | `master-login-timeout-ms` | `0` | 登录命令超时（0 表示不超时） |
-| `include-indexed-db-in-snapshot` | `false` | 默认不导出 IndexedDB |
-| `profile-id-regex` | `^[a-zA-Z0-9._-]{1,64}$` | `profileId` 校验规则 |
+
+### 2.8.3 配置（`mmh.browser`）
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `snapshot-root` | `${user.home}/.my-mcp-hub/browser-snapshots` | 快照目录 |
+| `worker-pool-min-size-per-process` | `1` | 每进程最小 worker 数 |
+| `worker-pool-max-size-per-process` | `5` | 每进程最大 worker 数 |
+| `worker-idle-ttl-ms` | `300000` | 空闲池回收时间 |
+| `request-queue-capacity` | `200` | 请求队列容量 |
+| `queue-offer-timeout-ms` | `200` | 获取 worker 超时 |
+| `worker-refresh-interval-ms` | `5000` | worker 拉取阻塞时间 |
+| `snapshot-refresh-on-request-end` | `true` | 请求结束刷新 |
 | `snapshot-publish-lock-timeout-ms` | `500` | `publish.lock` 获取超时 |
-| `snapshot-dir-permission` | `700` | 快照目录权限 |
-| `snapshot-file-permission` | `600` | `state/meta` 文件权限 |
-
-### 2.8.3 配置抽取规划（`mmh.browser`）
-
-为支持后续 `BrowserMcp` 类能力，运行时公共配置抽取为 `mmh.browser.*`，`mmh.scrape.*` 仅保留抓取业务参数。
-
-建议抽取项：
-
-1. `worker-pool-size-per-process`
-2. `request-queue-capacity`
-3. `queue-offer-timeout-ms`
-4. `snapshot-refresh-on-request-end`
-5. `snapshot-refresh-interval-ms`
-6. `snapshot-refresh-debounce-ms`
-7. `snapshot-publish-lock-timeout-ms`
-8. `profile-id-regex`
+| `profile-id-regex` | `^[a-zA-Z0-9._-]{1,64}$` | `profileId` 校验规则 |
 
 ## 2.9 风险与应对
 
@@ -362,7 +350,7 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 | 旧快照回滚覆盖 | 旧任务晚于新登录态完成 | 新会话被旧状态覆盖 | `baseVersion` CAS + `publish.lock`，不满足条件直接丢弃 |
 | 初始无登录态 | `master` 新建后未登录 | 受限页面抓取失败 | 错误提示引导执行登录命令 |
 | 快照体积过大 | IndexedDB/状态膨胀 | 导出耗时上升 | 默认禁用 IndexedDB，按需开启 |
-| 快照敏感信息泄漏 | 目录权限过宽或日志误打 | 会话泄露风险 | 快照目录/文件权限收敛（700/600），禁止日志打印 `state.json` 内容 |
+| 快照敏感信息泄漏 | 目录权限过宽或日志误打 | 会话泄露风险 | 快照目录/文件权限收敛（700/600，v2），禁止日志打印 `state.json` 内容 |
 
 ## 2.10 实施步骤
 
@@ -395,12 +383,12 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 | TC-08 | 登录命令并发冲突 | 第二个命令快速失败 |
 | TC-09 | 多进程会话共享 | 登录后不同进程新请求均可复用会话 |
 | TC-10 | 快照发布无进程重启 | 发布期间无浏览器重启 |
-| TC-11 | 刷新合并生效 | 高频场景下导出次数受控 |
-| TC-12 | `profileId` 隔离 | 不同 profile 间会话互不污染 |
+| TC-11 | 刷新合并生效 | 高频场景下导出次数受控（v2） |
+| TC-12 | `profileId` 隔离 | 不同 profile 间会话互不污染（登录命令） |
 | TC-13 | Markdown 质量基线 | 不低于 firecrawl 对标阈值 |
 | TC-14 | 快照防回滚 | 旧任务晚完成且 `baseVersion` 落后 | 发布被丢弃，不覆盖新版本 |
-| TC-15 | `profileId` 非法输入 | 含路径分隔符或 `..` | 返回 400 且拒绝访问文件系统 |
-| TC-16 | 快照权限校验 | 首次初始化后检查权限 | 目录 700、文件 600 |
+| TC-15 | `profileId` 非法输入 | 含路径分隔符或 `..` | 返回错误且拒绝访问文件系统 |
+| TC-16 | 快照权限校验 | 首次初始化后检查权限 | 目录 700、文件 600（v2） |
 | TC-17 | 通用运行时复用 | 用 `BrowserTask` 伪实现接入第二工具 | 无需改动运行时主干即可执行 |
 | TC-18 | 配置拆分兼容 | 同时存在 `mmh.browser.*` 与 `mmh.scrape.*` | 读取优先级正确且行为一致 |
 
@@ -415,8 +403,9 @@ boolean tryPublish(String profileId, long baseVersion, BrowserContext ctx) {
 7. `core/src/test/java/fun/fengwk/mmh/core/service/scrape/parser/HtmlMainContentCleanerTest.java`
 8. `core/src/test/java/fun/fengwk/mmh/core/service/scrape/parser/MarkdownRendererTest.java`
 9. `core/src/test/java/fun/fengwk/mmh/core/service/scrape/parser/MarkdownPostProcessorTest.java`
-10. `core/src/test/java/fun/fengwk/mmh/core/service/scrape/model/ProfileIdValidatorTest.java`
+10. `core/src/test/java/fun/fengwk/mmh/core/service/browser/coordination/ProfileIdValidatorTest.java`
 11. `core/src/test/java/fun/fengwk/mmh/core/service/browser/runtime/BrowserTaskExecutorTest.java`
+12. `core/src/test/java/fun/fengwk/mmh/core/service/scrape/impl/PageScrapeServiceIT.java`
 
 ## 3.4 验证命令
 

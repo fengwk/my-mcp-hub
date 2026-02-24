@@ -1,6 +1,7 @@
 package fun.fengwk.mmh.core.service.scrape.runtime;
 
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
 import fun.fengwk.convention4j.common.lang.StringUtils;
@@ -14,6 +15,7 @@ import fun.fengwk.mmh.core.service.scrape.parser.HtmlMainContentCleaner;
 import fun.fengwk.mmh.core.service.scrape.parser.LinkExtractor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownPostProcessor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownRenderer;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 
 import java.util.Base64;
@@ -23,6 +25,7 @@ import java.util.Base64;
  *
  * @author fengwk
  */
+@Slf4j
 @RequiredArgsConstructor
 public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
 
@@ -46,12 +49,35 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         if (request.getWaitFor() != null && request.getWaitFor() > 0) {
             page.waitForTimeout(request.getWaitFor());
         } else {
-            page.waitForLoadState(LoadState.NETWORKIDLE);
+            try {
+                // NETWORKIDLE may never happen for long-polling pages, treat it as best-effort.
+                page.waitForLoadState(
+                    LoadState.NETWORKIDLE,
+                    new Page.WaitForLoadStateOptions().setTimeout((double) scrapeProperties.getNavigateTimeoutMs())
+                );
+            } catch (TimeoutError ex) {
+                log.warn("network idle timeout, url={}", request.getUrl());
+            }
         }
 
         String html = page.content();
         boolean onlyMainContent = request.getOnlyMainContent() != null && request.getOnlyMainContent();
-        String cleanedHtml = onlyMainContent ? htmlMainContentCleaner.clean(html) : html;
+        String cleanedHtml = htmlMainContentCleaner.clean(
+            html,
+            request.getUrl(),
+            onlyMainContent,
+            scrapeProperties.isStripChromeTags(),
+            scrapeProperties.isRemoveBase64Images()
+        );
+        String fallbackHtml = onlyMainContent
+            ? htmlMainContentCleaner.clean(
+                html,
+                request.getUrl(),
+                false,
+                scrapeProperties.isStripChromeTags(),
+                scrapeProperties.isRemoveBase64Images()
+            )
+            : cleanedHtml;
 
         ScrapeResponse.ScrapeResponseBuilder builder = ScrapeResponse.builder()
             .statusCode(200)
@@ -62,9 +88,9 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
                 builder.content(cleanedHtml);
                 break;
             case MARKDOWN:
-                String markdown = markdownPostProcessor.process(markdownRenderer.render(cleanedHtml));
-                if (StringUtils.isBlank(markdown)) {
-                    markdown = markdownPostProcessor.process(markdownRenderer.render(html));
+                String markdown = markdownPostProcessor.process(markdownRenderer.render(cleanedHtml, request.getUrl()));
+                if (onlyMainContent && StringUtils.isBlank(markdown)) {
+                    markdown = markdownPostProcessor.process(markdownRenderer.render(fallbackHtml, request.getUrl()));
                 }
                 builder.content(markdown);
                 break;

@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import com.microsoft.playwright.BrowserContext;
+
 /**
  * Snapshot publisher facade.
  *
@@ -15,6 +17,14 @@ import org.springframework.stereotype.Component;
 public class SnapshotPublisher {
 
     private final SnapshotStore snapshotStore;
+
+    public void publishFromContext(String profileId, BrowserContext context) {
+        StorageStateSnapshot snapshot = snapshotStore.readLatest(profileId);
+        boolean success = snapshotStore.tryPublish(profileId, snapshot.getVersion(), context.storageState());
+        if (!success) {
+            log.debug("drop stale snapshot, profileId={}, baseVersion={}", profileId, snapshot.getVersion());
+        }
+    }
 
     public void tryPublish(String profileId, long baseVersion, String state) {
         boolean success = snapshotStore.tryPublish(profileId, baseVersion, state);

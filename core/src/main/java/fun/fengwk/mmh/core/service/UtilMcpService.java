@@ -12,6 +12,6 @@ public interface UtilMcpService {
 
     String createTempDir();
 
-    ScrapeResponse scrape(String url, String format, Boolean onlyMainContent, Integer waitFor);
+    ScrapeResponse scrape(String url, String format, Boolean onlyMainContent, Integer waitFor, String profileMode);
 
 }

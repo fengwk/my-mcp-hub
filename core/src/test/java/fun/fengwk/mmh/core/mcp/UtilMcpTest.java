@@ -97,14 +97,14 @@ public class UtilMcpTest {
             .format("html")
             .content("<html></html>")
             .build();
-        when(utilMcpService.scrape("https://example.com", "html", true, 0))
+        when(utilMcpService.scrape("https://example.com", "html", true, 0, "master"))
             .thenReturn(response);
         when(mcpFormatter.format("mmh_scrape_result.ftl", response)).thenReturn("ok");
 
-        String result = utilsMcp.scrape("https://example.com", "html", true, 0);
+        String result = utilsMcp.scrape("https://example.com", "html", "master", true, 0);
 
         assertThat(result).isEqualTo("ok");
-        verify(utilMcpService).scrape("https://example.com", "html", true, 0);
+        verify(utilMcpService).scrape("https://example.com", "html", true, 0, "master");
         verify(mcpFormatter).format("mmh_scrape_result.ftl", response);
     }
 

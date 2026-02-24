@@ -14,6 +14,7 @@ public class ScrapeRequest {
 
     private String url;
     private String format;
+    private String profileMode;
     private Boolean onlyMainContent;
     private Integer waitFor;
 

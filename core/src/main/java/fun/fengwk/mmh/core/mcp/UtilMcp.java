@@ -63,10 +63,11 @@ public class UtilMcp {
     public String scrape(
         @ToolParam(description = "target page url (http/https). Provide a fully qualified URL") String url,
         @ToolParam(description = "output format, default markdown. Choose one of: markdown/html/links/screenshot/fullscreenshot", required = false) String format,
+        @ToolParam(description = "profile mode, default default. Choose one of: default/master", required = false) String profileMode,
         @ToolParam(description = "whether to keep only main content, default false. Set true to focus on main content only", required = false) Boolean onlyMainContent,
         @ToolParam(description = "wait in milliseconds after navigation, default 0. You can estimate a proper waitFor by checking the returned elapsedMs", required = false) Integer waitFor
     ) {
-        ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, waitFor);
+        ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, waitFor, profileMode);
         return mcpFormatter.format("mmh_scrape_result.ftl", response);
     }
 

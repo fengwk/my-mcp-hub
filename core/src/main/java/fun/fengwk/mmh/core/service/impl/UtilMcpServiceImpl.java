@@ -46,10 +46,11 @@ public class UtilMcpServiceImpl implements UtilMcpService {
     }
 
     @Override
-    public ScrapeResponse scrape(String url, String format, Boolean onlyMainContent, Integer waitFor) {
+    public ScrapeResponse scrape(String url, String format, Boolean onlyMainContent, Integer waitFor, String profileMode) {
         ScrapeRequest request = ScrapeRequest.builder()
             .url(url)
             .format(format)
+            .profileMode(profileMode)
             .onlyMainContent(onlyMainContent)
             .waitFor(waitFor)
             .build();

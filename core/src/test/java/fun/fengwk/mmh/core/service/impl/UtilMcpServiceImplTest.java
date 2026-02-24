@@ -63,7 +63,7 @@ public class UtilMcpServiceImplTest {
             .build();
         when(pageScrapeService.scrape(any())).thenReturn(response);
 
-        ScrapeResponse result = utilMcpService.scrape("https://example.com", "html", true, 100);
+        ScrapeResponse result = utilMcpService.scrape("https://example.com", "html", true, 100, "master");
 
         assertThat(result).isEqualTo(response);
         ArgumentCaptor<fun.fengwk.mmh.core.service.scrape.model.ScrapeRequest> captor =
@@ -71,6 +71,7 @@ public class UtilMcpServiceImplTest {
         verify(pageScrapeService).scrape(captor.capture());
         assertThat(captor.getValue().getUrl()).isEqualTo("https://example.com");
         assertThat(captor.getValue().getFormat()).isEqualTo("html");
+        assertThat(captor.getValue().getProfileMode()).isEqualTo("master");
         assertThat(captor.getValue().getOnlyMainContent()).isTrue();
         assertThat(captor.getValue().getWaitFor()).isEqualTo(100);
     }

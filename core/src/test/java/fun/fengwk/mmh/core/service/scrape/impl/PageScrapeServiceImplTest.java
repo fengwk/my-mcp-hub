@@ -8,6 +8,8 @@ import fun.fengwk.mmh.core.service.scrape.parser.HtmlMainContentCleaner;
 import fun.fengwk.mmh.core.service.scrape.parser.LinkExtractor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownPostProcessor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownRenderer;
+import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileLockedException;
+import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileTaskExecutor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +33,9 @@ public class PageScrapeServiceImplTest {
     private BrowserTaskExecutor browserTaskExecutor;
 
     @Mock
+    private MasterProfileTaskExecutor masterProfileTaskExecutor;
+
+    @Mock
     private HtmlMainContentCleaner htmlMainContentCleaner;
 
     @Mock
@@ -50,6 +55,7 @@ public class PageScrapeServiceImplTest {
         scrapeProperties.setDefaultProfileId("master");
         pageScrapeService = new PageScrapeServiceImpl(
             browserTaskExecutor,
+            masterProfileTaskExecutor,
             scrapeProperties,
             htmlMainContentCleaner,
             markdownRenderer,
@@ -90,6 +96,18 @@ public class PageScrapeServiceImplTest {
     }
 
     @Test
+    public void shouldReturn400WhenProfileModeUnsupported() {
+        ScrapeResponse response = pageScrapeService.scrape(
+            ScrapeRequest.builder().url("https://example.com").profileMode("unknown").build()
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(400);
+        assertThat(response.getError()).contains("unsupported profileMode");
+        verify(browserTaskExecutor, never()).execute(any(), any());
+        verify(masterProfileTaskExecutor, never()).execute(any(), any());
+    }
+
+    @Test
     public void shouldReturn400WhenWaitForOutOfRange() {
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder().url("https://example.com").waitFor(60001).build()
@@ -113,6 +131,42 @@ public class PageScrapeServiceImplTest {
 
         assertThat(response).isEqualTo(expected);
         verify(browserTaskExecutor).execute(eq("master"), any());
+        verify(masterProfileTaskExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    public void shouldUseMasterProfileWhenRequested() {
+        ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
+        when(masterProfileTaskExecutor.execute(eq("master"), any())).thenReturn(expected);
+
+        ScrapeResponse response = pageScrapeService.scrape(
+            ScrapeRequest.builder()
+                .url("https://example.com")
+                .format("html")
+                .profileMode("master")
+                .build()
+        );
+
+        assertThat(response).isEqualTo(expected);
+        verify(masterProfileTaskExecutor).execute(eq("master"), any());
+        verify(browserTaskExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    public void shouldReturn500WhenMasterProfileLocked() {
+        when(masterProfileTaskExecutor.execute(eq("master"), any()))
+            .thenThrow(new MasterProfileLockedException("locked"));
+
+        ScrapeResponse response = pageScrapeService.scrape(
+            ScrapeRequest.builder()
+                .url("https://example.com")
+                .format("html")
+                .profileMode("master")
+                .build()
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(500);
+        assertThat(response.getError()).contains("Master profile is in use");
     }
 
     @Test
