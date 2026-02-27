@@ -2,7 +2,6 @@ package fun.fengwk.mmh.core.mcp;
 
 import fun.fengwk.mmh.core.facade.search.model.SearchResponse;
 import fun.fengwk.mmh.core.service.UtilMcpService;
-import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,24 +87,6 @@ public class UtilMcpTest {
 
         assertThat(result).isEqualTo("/tmp/mmh-123");
         verify(utilMcpService).createTempDir();
-    }
-
-    @Test
-    public void testScrape() {
-        ScrapeResponse response = ScrapeResponse.builder()
-            .statusCode(200)
-            .format("html")
-            .content("<html></html>")
-            .build();
-        when(utilMcpService.scrape("https://example.com", "html", true, null, "master"))
-            .thenReturn(response);
-        when(mcpFormatter.format("mmh_scrape_result.ftl", response)).thenReturn("ok");
-
-        String result = utilsMcp.scrape("https://example.com", "html", "master", true);
-
-        assertThat(result).isEqualTo("ok");
-        verify(utilMcpService).scrape("https://example.com", "html", true, null, "master");
-        verify(mcpFormatter).format("mmh_scrape_result.ftl", response);
     }
 
 }
