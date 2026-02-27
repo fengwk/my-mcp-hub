@@ -1,12 +1,9 @@
 package fun.fengwk.mmh.core.service.browser.coordination;
 
-import fun.fengwk.mmh.core.service.browser.BrowserProperties;
-import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,41 +17,46 @@ public class LoginLockManagerTest {
     Path tempDir;
 
     private LoginLockManager loginLockManager;
+    private Path profileLockPath;
 
     @BeforeEach
-    public void setUp() throws Exception {
-        BrowserProperties browserProperties = new BrowserProperties();
-        Path snapshotRoot = tempDir.resolve("snapshots");
-        browserProperties.setSnapshotRoot(snapshotRoot.toString());
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        ProfileIdValidator profileIdValidator = new ProfileIdValidator(browserProperties, scrapeProperties);
-        loginLockManager = new LoginLockManager(profileIdValidator);
-
-        Path profileDir = snapshotRoot.resolve("master");
-        Files.createDirectories(profileDir);
-        Files.createFile(profileDir.resolve("login.lock"));
+    public void setUp() {
+        loginLockManager = new LoginLockManager();
+        profileLockPath = tempDir.resolve("browser-data").resolve("master").resolve("browser.lock");
     }
 
     @Test
     public void shouldAcquireAndReleaseLock() {
-        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire("master")) {
+        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire(profileLockPath)) {
             assertThat(lock).isNotNull();
         }
 
-        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire("master")) {
+        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire(profileLockPath)) {
             assertThat(lock).isNotNull();
         }
     }
 
     @Test
     public void shouldFailWhenLockHeld() {
-        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire("master")) {
+        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire(profileLockPath)) {
             assertThat(lock).isNotNull();
-            LoginLockManager.LoginLock second = loginLockManager.tryAcquire("master");
+            LoginLockManager.LoginLock second = loginLockManager.tryAcquire(profileLockPath);
             assertThat(second).isNull();
             if (second != null) {
                 second.close();
             }
+        }
+    }
+
+    @Test
+    public void shouldAcquireLockByPath() {
+        Path lockPath = tempDir.resolve("custom").resolve("runtime.lock");
+        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire(lockPath)) {
+            assertThat(lock).isNotNull();
+        }
+
+        try (LoginLockManager.LoginLock lock = loginLockManager.tryAcquire(lockPath)) {
+            assertThat(lock).isNotNull();
         }
     }
 

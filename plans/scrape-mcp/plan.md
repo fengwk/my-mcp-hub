@@ -2,13 +2,13 @@
 
 ## 1. 项目概述
 
-在 `core` 模块新增基于 Playwright 的 `scrape` 工具能力，并将 worker + Playwright 生命周期、快照协调、并发控制抽取为通用浏览器运行时层，供后续 `BrowserMcp` 类工具复用。当前阶段以 `scrape` 落地为主，同时完成可扩展架构骨架，避免后续重复建设。
+在 `core` 模块新增基于 Playwright 的 `scrape` 工具能力，并将 worker + Playwright 生命周期、浏览器协调、并发控制抽取为通用浏览器运行时层，供后续 `BrowserMcp` 类工具复用。当前阶段以 `scrape` 落地为主，同时完成可扩展架构骨架，避免后续重复建设。
 
 ## 2. 范围与里程碑
 
 | 里程碑 | 覆盖范围/交付物 | 依赖 | 验收 |
 |---|---|---|---|
-| M1 运行时基础层 | 通用 Browser Runtime + Snapshot Coordination + 配置骨架 | - | `scrape` 可通过通用执行器跑通最小链路 |
+| M1 运行时基础层 | 通用 Browser Runtime + Browser Coordination + 配置骨架 | - | `scrape` 可通过通用执行器跑通最小链路 |
 | M2 Scrape 可用版本 | MCP `scrape`、登录命令、模板输出、核心测试 | M1 | 五种 format 可用，登录态可跨进程共享 |
 | M3 扩展预留验证 | 第二工具伪实现接入、配置拆分兼容验证 | M2 | 新工具接入不改运行时主干 |
 

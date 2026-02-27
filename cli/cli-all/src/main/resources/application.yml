@@ -1,24 +1,43 @@
 spring:
   application:
+    # Application name exposed to MCP clients
     name: mmh-all
   main:
+    # CLI process, no web server
     web-application-type: none
+    # Disable Spring banner for cleaner CLI output
     banner-mode: off
   ai:
     mcp:
       server:
+        # Enable/disable MCP server runtime
+        enabled: true
+        # MCP server identity
         name: ${spring.application.name}
+        # MCP server version
         version: 1.0.0
+        # Request timeout for a single MCP call
+        request-timeout: 45s
+        # MCP transport handling type
         type: SYNC
+        # Use stdio transport
         stdio: true
+        annotation-scanner:
+          # Enable annotation-based MCP tool scanning
+          enabled: true
         capabilities:
+          # Expose tool capability
           tools: true
+          # Expose resource capability
           resource: true
+          # Expose prompt capability
           prompt: true
+          # Expose completion capability
           completion: true
 
 logging:
   level:
+    # Global default log level
     root: info
 
 mmh:
@@ -37,8 +56,6 @@ mmh:
       # Request method: GET/POST
       method: POST
   browser:
-    # Shared browser snapshot root
-    snapshot-root: ${MMH_BROWSER_SNAPSHOT_ROOT:${user.home}/.my-mcp-hub/browser-snapshots}
     # Browser channel, e.g. chrome, msedge
     browser-channel: ""
     # Browser executable path
@@ -71,42 +88,52 @@ mmh:
     timezone-id: ""
     # Extra headers for browser context
     extra-headers: {}
-    # Proxy settings
+    # Proxy server address, e.g. http://host:port
     proxy-server: ""
+    # Proxy username (optional)
     proxy-username: ""
+    # Proxy password (optional)
     proxy-password: ""
     # Min worker count per process
-    worker-pool-min-size-per-process: 1
-    # Max worker count per process: use code default when omitted
-    # worker-pool-max-size-per-process: 4
-    # Release worker pool when idle for ttl
-    worker-idle-ttl-ms: 60000
+    worker-pool-min-size-per-process: 0
+    # Max worker count per process
+    worker-pool-max-size-per-process: 5
     # Wait time to acquire an idle worker
-    queue-offer-timeout-ms: 200
-    # Refresh snapshot after request
-    snapshot-refresh-on-request-end: true
-    # Publish lock timeout
-    snapshot-publish-lock-timeout-ms: 500
+    queue-offer-timeout-ms: 15000
+    # Default/slave MCP workers run headless (set false to observe browser window)
+    slave-headless: true
     # profile id validation regex
     profile-id-regex: ^[a-zA-Z0-9._-]{1,64}$
-  scrape:
-    # Default profile id for scrape requests
+    # Default profile id for browser tasks
     default-profile-id: master
+    # Root directory for persistent browser profile data
+    master-user-data-root: ${MMH_BROWSER_MASTER_USER_DATA_ROOT:${user.home}/.my-mcp-hub/browser-data}
+    # Extra args for manual master login browser
+    master-login-args: ["--force-device-scale-factor=1.85", "--lang=zh-CN"]
+    # Initial page url for manual master login
+    master-login-initial-page-url: "https://google.com"
+    # Navigate timeout for manual master login initial page
+    master-login-navigate-timeout-ms: 30000
+    # Polling interval for manual master login page-state checks (0 uses default loop interval)
+    master-login-refresh-interval-ms: 0
+    # Timeout for manual master login (0 means no timeout)
+    master-login-timeout-ms: 0
+    # Lock timeout for master profile usage
+    master-profile-lock-timeout-ms: 2000
+  scrape:
     # Page navigate timeout in ms
     navigate-timeout-ms: 30000
     # Strip chrome tags like header/footer/nav when onlyMainContent is true
     strip-chrome-tags: true
     # Remove embedded base64/data images from markdown
     remove-base64-images: true
-    # User data root for manual login mode
-    master-user-data-root: ${MMH_SCRAPE_MASTER_USER_DATA_ROOT:${user.home}/.my-mcp-hub/browser-data}
-    # Extra args for manual login browser
-    # master-login-args: ["--force-device-scale-factor=2", "--lang=zh-CN"]
-    # Initial page url for manual login
-    # master-login-initial-page-url: https://example.com
-    # Refresh interval for manual login (0 means no periodic publish)
-    # master-login-refresh-interval-ms: 0
-    # Timeout for manual login (0 means no timeout)
-    # master-login-timeout-ms: 0
-    # Lock timeout for master profile usage
-    # master-profile-lock-timeout-ms: 2000
+    # Direct-media probe timeout in ms
+    direct-media-probe-timeout-ms: 3000
+    # Enable smart wait (content stability detection) when waitFor is not provided
+    smart-wait-enabled: true
+    # Smart wait polling interval in ms
+    stability-check-interval-ms: 1000
+    # Smart wait maximum duration in ms
+    stability-max-wait-ms: 15000
+    # Smart wait stable rounds required before considered settled
+    stability-threshold: 2

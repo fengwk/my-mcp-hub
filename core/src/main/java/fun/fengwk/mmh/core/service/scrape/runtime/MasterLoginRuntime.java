@@ -9,7 +9,6 @@ import fun.fengwk.convention4j.common.lang.StringUtils;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserStealthSupport;
 import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
-import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -17,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,27 +31,30 @@ import java.util.concurrent.ThreadLocalRandom;
 @Component
 public class MasterLoginRuntime {
 
-    private final ScrapeProperties scrapeProperties;
+    private static final String DISABLE_BACKGROUND_MODE_ARG = "--disable-background-mode";
+    private static final String DISABLE_BACKGROUND_NETWORKING_ARG = "--disable-background-networking";
+    private static final String DISABLE_COMPONENT_BACKGROUND_PAGES_ARG = "--disable-component-extensions-with-background-pages";
+    private static final String DISABLE_EXTENSIONS_ARG = "--disable-extensions";
+    private static final String NO_FIRST_RUN_ARG = "--no-first-run";
+    private static final String NO_DEFAULT_BROWSER_CHECK_ARG = "--no-default-browser-check";
+
     private final ProfileIdValidator profileIdValidator;
     private final BrowserProperties browserProperties;
     private final PlaywrightFactory playwrightFactory;
 
     @Autowired
     public MasterLoginRuntime(
-        ScrapeProperties scrapeProperties,
         ProfileIdValidator profileIdValidator,
         BrowserProperties browserProperties
     ) {
-        this(scrapeProperties, profileIdValidator, browserProperties, Playwright::create);
+        this(profileIdValidator, browserProperties, Playwright::create);
     }
 
     MasterLoginRuntime(
-        ScrapeProperties scrapeProperties,
         ProfileIdValidator profileIdValidator,
         BrowserProperties browserProperties,
         PlaywrightFactory playwrightFactory
     ) {
-        this.scrapeProperties = scrapeProperties;
         this.profileIdValidator = profileIdValidator;
         this.browserProperties = browserProperties;
         this.playwrightFactory = playwrightFactory;
@@ -69,15 +72,9 @@ public class MasterLoginRuntime {
                 && !browserProperties.getIgnoreDefaultArgs().isEmpty()) {
                 options.setIgnoreDefaultArgs(browserProperties.getIgnoreDefaultArgs());
             }
-            if (scrapeProperties.getMasterLoginArgs() != null && !scrapeProperties.getMasterLoginArgs().isEmpty()) {
-                List<String> args = new java.util.ArrayList<>();
-                if (browserProperties.getLaunchArgs() != null && !browserProperties.getLaunchArgs().isEmpty()) {
-                    args.addAll(browserProperties.getLaunchArgs());
-                }
-                args.addAll(scrapeProperties.getMasterLoginArgs());
-                options.setArgs(args);
-            } else if (browserProperties.getLaunchArgs() != null && !browserProperties.getLaunchArgs().isEmpty()) {
-                options.setArgs(browserProperties.getLaunchArgs());
+            List<String> launchArgs = buildMasterLoginLaunchArgs();
+            if (!launchArgs.isEmpty()) {
+                options.setArgs(launchArgs);
             }
             if (StringUtils.isNotBlank(browserProperties.getBrowserChannel())) {
                 options.setChannel(browserProperties.getBrowserChannel());
@@ -102,10 +99,35 @@ public class MasterLoginRuntime {
         }
     }
 
+    private List<String> buildMasterLoginLaunchArgs() {
+        List<String> args = new ArrayList<>();
+        if (browserProperties.getLaunchArgs() != null && !browserProperties.getLaunchArgs().isEmpty()) {
+            args.addAll(browserProperties.getLaunchArgs());
+        }
+        if (browserProperties.getMasterLoginArgs() != null && !browserProperties.getMasterLoginArgs().isEmpty()) {
+            args.addAll(browserProperties.getMasterLoginArgs());
+        }
+
+        addIfAbsent(args, DISABLE_BACKGROUND_MODE_ARG);
+        addIfAbsent(args, DISABLE_BACKGROUND_NETWORKING_ARG);
+        addIfAbsent(args, DISABLE_COMPONENT_BACKGROUND_PAGES_ARG);
+        addIfAbsent(args, DISABLE_EXTENSIONS_ARG);
+        addIfAbsent(args, NO_FIRST_RUN_ARG);
+        addIfAbsent(args, NO_DEFAULT_BROWSER_CHECK_ARG);
+
+        return args;
+    }
+
+    private void addIfAbsent(List<String> args, String arg) {
+        if (!args.contains(arg)) {
+            args.add(arg);
+        }
+    }
+
     public Path resolveUserDataDir(String profileId) {
         try {
             String normalizedProfileId = profileIdValidator.normalizeProfileId(profileId);
-            Path rootDir = Paths.get(scrapeProperties.getMasterUserDataRoot()).toAbsolutePath().normalize();
+            Path rootDir = Paths.get(browserProperties.getMasterUserDataRoot()).toAbsolutePath().normalize();
             Path userDataDir = rootDir.resolve(normalizedProfileId).normalize();
             if (!userDataDir.startsWith(rootDir)) {
                 throw new IllegalArgumentException("invalid user data dir path");
@@ -133,7 +155,7 @@ public class MasterLoginRuntime {
     }
 
     private void openInitialPageIfNeeded(BrowserContext context) {
-        String initialPageUrl = scrapeProperties.getMasterLoginInitialPageUrl();
+        String initialPageUrl = browserProperties.getMasterLoginInitialPageUrl();
         if (StringUtils.isBlank(initialPageUrl)) {
             return;
         }
@@ -141,7 +163,7 @@ public class MasterLoginRuntime {
         page.navigate(initialPageUrl,
             new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
-                .setTimeout((double) scrapeProperties.getNavigateTimeoutMs())
+                .setTimeout((double) browserProperties.getMasterLoginNavigateTimeoutMs())
         );
     }
 

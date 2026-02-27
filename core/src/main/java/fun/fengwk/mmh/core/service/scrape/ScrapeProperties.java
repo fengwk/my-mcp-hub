@@ -4,11 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * Scrape tool specific configuration.
+ * Scrape pipeline specific configuration.
  *
  * @author fengwk
  */
@@ -16,11 +13,6 @@ import java.util.List;
 @Component
 @ConfigurationProperties(prefix = "mmh.scrape")
 public class ScrapeProperties {
-
-    /**
-     * Default profile used by scrape requests.
-     */
-    private String defaultProfileId = "master";
 
     /**
      * Page navigate timeout in milliseconds.
@@ -38,34 +30,28 @@ public class ScrapeProperties {
     private boolean removeBase64Images = true;
 
     /**
-     * Root directory for persistent profile used by manual login.
+     * Request timeout in milliseconds for direct-media probe.
      */
-    private String masterUserDataRoot = System.getProperty("user.home") + "/.my-mcp-hub/browser-data";
+    private int directMediaProbeTimeoutMs = 3000;
 
     /**
-     * Extra browser args for manual login.
+     * Enable smart wait (content stability detection) when waitFor is not provided.
      */
-    private List<String> masterLoginArgs = new ArrayList<>();
+    private boolean smartWaitEnabled = true;
 
     /**
-     * Initial page url for manual login.
+     * Smart wait polling interval in milliseconds.
      */
-    private String masterLoginInitialPageUrl;
-
-
-    /**
-     * Snapshot refresh interval for manual login.
-     */
-    private long masterLoginRefreshIntervalMs = 0;
+    private int stabilityCheckIntervalMs = 1000;
 
     /**
-     * Timeout for manual login, 0 means no timeout.
+     * Smart wait maximum duration in milliseconds.
      */
-    private long masterLoginTimeoutMs = 0;
+    private int stabilityMaxWaitMs = 15000;
 
     /**
-     * Timeout for master profile lock in milliseconds, 0 means no wait.
+     * Smart wait stable rounds required before considered settled.
      */
-    private long masterProfileLockTimeoutMs = 2000;
+    private int stabilityThreshold = 2;
 
 }

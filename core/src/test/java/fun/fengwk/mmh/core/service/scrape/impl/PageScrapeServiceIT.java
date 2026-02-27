@@ -28,6 +28,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -86,6 +87,9 @@ public class PageScrapeServiceIT {
         </body>
         </html>
         """;
+    private static final byte[] IMAGE_PNG_BYTES = Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    );
 
     @Autowired
     private PageScrapeService pageScrapeService;
@@ -96,8 +100,9 @@ public class PageScrapeServiceIT {
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("mmh.browser.snapshot-root", () -> TEMP_DIR.resolve("snapshots").toString());
-        registry.add("mmh.scrape.default-profile-id", () -> "it");
+        registry.add("spring.ai.mcp.server.enabled", () -> "false");
+        registry.add("spring.ai.mcp.server.annotation-scanner.enabled", () -> "false");
+        registry.add("mmh.browser.default-profile-id", () -> "it");
         registry.add("mmh.scrape.navigate-timeout-ms", () -> "5000");
     }
 
@@ -108,6 +113,7 @@ public class PageScrapeServiceIT {
         server.createContext("/simple", exchange -> respond(exchange, SIMPLE_HTML));
         server.createContext("/links", exchange -> respond(exchange, LINKS_HTML));
         server.createContext("/dynamic", exchange -> respond(exchange, DYNAMIC_HTML));
+        server.createContext("/image", exchange -> respondBinary(exchange, "image/png", IMAGE_PNG_BYTES));
         executor = Executors.newCachedThreadPool();
         server.setExecutor(executor);
         server.start();
@@ -196,8 +202,23 @@ public class PageScrapeServiceIT {
             .format("screenshot")
             .build());
 
-        assertThat(response.getScreenshotBase64()).isNotBlank();
+        assertThat(response.getScreenshotMime()).isEqualTo("image/png");
+        assertThat(response.getScreenshotBase64()).startsWith("data:image/png;base64,");
         log.info("scrape screenshot size={}", response.getScreenshotBase64().length());
+    }
+
+    @Test
+    public void shouldReturnDirectMediaDataUriRegardlessOfFormat() {
+        ScrapeResponse response = pageScrapeService.scrape(ScrapeRequest.builder()
+            .url(url("/image"))
+            .format("markdown")
+            .build());
+
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        assertThat(response.getFormat()).isEqualTo("media");
+        assertThat(response.getScreenshotMime()).isEqualTo("image/png");
+        assertThat(response.getScreenshotBase64()).startsWith("data:image/png;base64,");
+        log.info("scrape direct media size={}", response.getScreenshotBase64().length());
     }
 
     private String url(String path) {
@@ -207,6 +228,14 @@ public class PageScrapeServiceIT {
     private void respond(HttpExchange exchange, String body) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, payload.length);
+        try (OutputStream outputStream = exchange.getResponseBody()) {
+            outputStream.write(payload);
+        }
+    }
+
+    private void respondBinary(HttpExchange exchange, String contentType, byte[] payload) throws IOException {
+        exchange.getResponseHeaders().add("Content-Type", contentType);
         exchange.sendResponseHeaders(200, payload.length);
         try (OutputStream outputStream = exchange.getResponseBody()) {
             outputStream.write(payload);

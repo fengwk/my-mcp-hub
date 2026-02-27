@@ -18,7 +18,17 @@ public class ScrapeResponse {
     private String format;
     private String content;
     private List<String> links;
+
+    /**
+     * Screenshot data URI: data:image/png;base64,...
+     */
     private String screenshotBase64;
+
+    /**
+     * Screenshot mime type, currently image/png.
+     */
+    private String screenshotMime;
+
     private Long elapsedMs;
     private String error;
 

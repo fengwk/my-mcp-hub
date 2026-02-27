@@ -21,16 +21,23 @@ fi
 
 mcp_name=$1
 if [ -z "$mcp_name" ]; then
-    echo "Usage: mmh-cli {mcp-name|open-browser}" >&2
-    echo "Example: mmh-cli util" >&2
+    echo "Usage: mmh-cli {all|open-browser}" >&2
+    echo "Example: mmh-cli all" >&2
     echo "Example: mmh-cli open-browser" >&2
     exit 1
 fi
 shift
 
 if [ "$mcp_name" = "open-browser" ]; then
-    mcp_name="util"
-    extra_args=("--open-browser")
+    mcp_name="all"
+    extra_args=(
+      "--open-browser"
+      "--spring.ai.mcp.server.enabled=false"
+      "--spring.ai.mcp.server.annotation-scanner.enabled=false"
+    )
+elif [ "$mcp_name" = "util" ]; then
+    mcp_name="all"
+    extra_args=()
 else
     extra_args=()
 fi
@@ -43,8 +50,57 @@ if [ -z "$jar_path" ]; then
 fi
 
 # 日志目录
-log_home="$HOME/.my-mcp-hub/logs"
+log_root="${MMH_LOG_BASE_DIR:-$HOME/.my-mcp-hub/logs}"
+agent_id="${MMH_AGENT_ID:-${AGENT_ID:-$$}}"
+agent_id_sanitized=$(printf '%s' "$agent_id" | tr -c 'a-zA-Z0-9._-' '_')
+if [ -z "$agent_id_sanitized" ]; then
+  agent_id_sanitized="$$"
+fi
+log_home="$log_root/agent-$agent_id_sanitized"
 mkdir -p "$log_home"
+
+# 日志清理策略：
+# 1) 删除过期归档（*.gz）
+# 2) 删除长期无文件更新的 agent 目录
+log_retention_days="${MMH_LOG_RETENTION_DAYS:-7}"
+if [[ "$log_retention_days" =~ ^[1-9][0-9]*$ ]]; then
+  resolved_log_root=$(readlink -f "$log_root" 2>/dev/null)
+  default_log_root="$HOME/.my-mcp-hub/logs"
+  allow_cleanup_outside_default="${MMH_LOG_CLEAN_ALLOW_OUTSIDE_DEFAULT:-false}"
+
+  if [ -z "$resolved_log_root" ] || [ "$resolved_log_root" = "/" ]; then
+    echo "skip log cleanup: unsafe log root '$log_root'" >&2
+  elif [ "$resolved_log_root" != "$default_log_root" ] \
+    && [[ "$resolved_log_root" != "$default_log_root/"* ]] \
+    && [ "$allow_cleanup_outside_default" != "true" ]; then
+    echo "skip log cleanup: '$resolved_log_root' is outside default '$default_log_root' (set MMH_LOG_CLEAN_ALLOW_OUTSIDE_DEFAULT=true to allow)" >&2
+  else
+    find "$log_root" -type f -name "*.gz" -mtime +"$log_retention_days" -delete 2>/dev/null
+    while IFS= read -r agent_dir; do
+      if [ "$agent_dir" = "$log_home" ]; then
+        continue
+      fi
+      agent_name=$(basename "$agent_dir")
+      agent_pid="${agent_name#agent-}"
+
+      # Safety: only auto-clean pid-based agent directories.
+      if [[ ! "$agent_pid" =~ ^[0-9]+$ ]]; then
+        continue
+      fi
+
+      # Safety: never delete logs for a still-running agent process.
+      if ps -p "$agent_pid" >/dev/null 2>&1; then
+        continue
+      fi
+
+      if ! find "$agent_dir" -type f -mtime -"$log_retention_days" | read -r _; then
+        rm -rf "$agent_dir"
+      fi
+    done < <(find "$log_root" -mindepth 1 -maxdepth 1 -type d -name "agent-*" 2>/dev/null)
+  fi
+else
+  echo "skip log cleanup: invalid MMH_LOG_RETENTION_DAYS='$log_retention_days' (must be positive integer)" >&2
+fi
 
 JAVA_OPTS="-server -Xss256k -Xms32M -Xmx512M"
 JAVA_OPTS="$JAVA_OPTS -Dspring.main.banner-mode=off"

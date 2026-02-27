@@ -1,6 +1,8 @@
 package fun.fengwk.mmh.core.service.scrape.impl;
 
 import fun.fengwk.mmh.core.service.browser.runtime.BrowserTaskExecutor;
+import fun.fengwk.mmh.core.service.browser.runtime.ProfileType;
+import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeRequest;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
@@ -9,7 +11,6 @@ import fun.fengwk.mmh.core.service.scrape.parser.LinkExtractor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownPostProcessor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownRenderer;
 import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileLockedException;
-import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileTaskExecutor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,9 +34,6 @@ public class PageScrapeServiceImplTest {
     private BrowserTaskExecutor browserTaskExecutor;
 
     @Mock
-    private MasterProfileTaskExecutor masterProfileTaskExecutor;
-
-    @Mock
     private HtmlMainContentCleaner htmlMainContentCleaner;
 
     @Mock
@@ -51,11 +49,12 @@ public class PageScrapeServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        BrowserProperties browserProperties = new BrowserProperties();
+        browserProperties.setDefaultProfileId("master");
         ScrapeProperties scrapeProperties = new ScrapeProperties();
-        scrapeProperties.setDefaultProfileId("master");
         pageScrapeService = new PageScrapeServiceImpl(
             browserTaskExecutor,
-            masterProfileTaskExecutor,
+            browserProperties,
             scrapeProperties,
             htmlMainContentCleaner,
             markdownRenderer,
@@ -72,7 +71,7 @@ public class PageScrapeServiceImplTest {
 
         assertThat(response.getStatusCode()).isEqualTo(400);
         assertThat(response.getError()).isEqualTo("url is blank");
-        verify(browserTaskExecutor, never()).execute(any(), any());
+        verify(browserTaskExecutor, never()).execute(any(), any(), any());
     }
 
     @Test
@@ -103,8 +102,7 @@ public class PageScrapeServiceImplTest {
 
         assertThat(response.getStatusCode()).isEqualTo(400);
         assertThat(response.getError()).contains("unsupported profileMode");
-        verify(browserTaskExecutor, never()).execute(any(), any());
-        verify(masterProfileTaskExecutor, never()).execute(any(), any());
+        verify(browserTaskExecutor, never()).execute(any(), any(), any());
     }
 
     @Test
@@ -120,7 +118,7 @@ public class PageScrapeServiceImplTest {
     @Test
     public void shouldUseDefaultProfileId() {
         ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
-        when(browserTaskExecutor.execute(eq("master"), any())).thenReturn(expected);
+        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.DEFAULT), any())).thenReturn(expected);
 
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder()
@@ -130,14 +128,13 @@ public class PageScrapeServiceImplTest {
         );
 
         assertThat(response).isEqualTo(expected);
-        verify(browserTaskExecutor).execute(eq("master"), any());
-        verify(masterProfileTaskExecutor, never()).execute(any(), any());
+        verify(browserTaskExecutor).execute(eq("master"), eq(ProfileType.DEFAULT), any());
     }
 
     @Test
     public void shouldUseMasterProfileWhenRequested() {
         ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
-        when(masterProfileTaskExecutor.execute(eq("master"), any())).thenReturn(expected);
+        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.MASTER), any())).thenReturn(expected);
 
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder()
@@ -148,14 +145,13 @@ public class PageScrapeServiceImplTest {
         );
 
         assertThat(response).isEqualTo(expected);
-        verify(masterProfileTaskExecutor).execute(eq("master"), any());
-        verify(browserTaskExecutor, never()).execute(any(), any());
+        verify(browserTaskExecutor).execute(eq("master"), eq(ProfileType.MASTER), any());
     }
 
     @Test
     public void shouldReturn500WhenMasterProfileLocked() {
-        when(masterProfileTaskExecutor.execute(eq("master"), any()))
-            .thenThrow(new MasterProfileLockedException("locked"));
+        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.MASTER), any()))
+            .thenThrow(new MasterProfileLockedException());
 
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder()
@@ -171,7 +167,8 @@ public class PageScrapeServiceImplTest {
 
     @Test
     public void shouldReturn500WhenExecutorThrows() {
-        when(browserTaskExecutor.execute(eq("master"), any())).thenThrow(new RuntimeException("boom"));
+        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.DEFAULT), any()))
+            .thenThrow(new RuntimeException("boom"));
 
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder()

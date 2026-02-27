@@ -1,10 +1,7 @@
 package fun.fengwk.mmh.core.service.browser.coordination;
 
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
-import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
 import org.junit.jupiter.api.Test;
-
-import java.nio.file.Paths;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,9 +14,8 @@ public class ProfileIdValidatorTest {
     @Test
     public void shouldUseDefaultProfileIdWhenBlank() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        scrapeProperties.setDefaultProfileId("master");
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        browserProperties.setDefaultProfileId("master");
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         assertThat(validator.normalizeProfileId(" ")).isEqualTo("master");
     }
@@ -27,8 +23,7 @@ public class ProfileIdValidatorTest {
     @Test
     public void shouldRejectPathTraversalProfileId() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         assertThatThrownBy(() -> validator.normalizeProfileId("../bad"))
             .isInstanceOf(IllegalArgumentException.class)
@@ -36,24 +31,21 @@ public class ProfileIdValidatorTest {
     }
 
     @Test
-    public void shouldResolveProfileDirUnderRoot() {
+    public void shouldAcceptSimpleProfileId() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
-        assertThat(validator.resolveProfileDir(Paths.get("/tmp/root"), "master"))
-            .isEqualTo(Paths.get("/tmp/root/master"));
+        assertThat(validator.normalizeProfileId("master")).isEqualTo("master");
     }
 
     @Test
-    public void shouldRejectResolvedPathOutsideRoot() {
+    public void shouldRejectSlashInProfileId() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
-        assertThatThrownBy(() -> validator.resolveProfileDir(Paths.get("/tmp/root"), "../evil"))
+        assertThatThrownBy(() -> validator.normalizeProfileId("a/b"))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("invalid profile path");
+            .hasMessageContaining("invalid profileId");
     }
 
 }

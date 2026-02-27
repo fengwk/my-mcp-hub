@@ -8,7 +8,6 @@ This file guides agentic coding agents working in this repository.
   - core (Spring Boot MCP server logic and shared utilities)
   - cli (aggregator module)
   - cli/cli-all (CLI app bundling all tools)
-  - cli/cli-util (CLI app for util tools)
 - Lombok is enabled via `lombok.config` at repo root.
 
 ## Repository layout
@@ -18,7 +17,7 @@ This file guides agentic coding agents working in this repository.
   - `mcp/templates/*.ftl` FreeMarker templates.
   - `logback-spring.xml` logging configuration.
   - `string.properties`, `string_zh_CN.properties` i18n bundles.
-- `cli/*/src/main/resources/application.yml`: CLI module configs.
+- `cli/cli-all/src/main/resources/application.yml`: CLI config.
 - `scripts/`: helper scripts (build/run CLI jars).
 
 ## Toolchain
@@ -61,7 +60,7 @@ This file guides agentic coding agents working in this repository.
 
 ## Run commands
 - Run a CLI jar built under `cli/cli-*/target`:
-  - `scripts/mmh-cli util`
+  - `scripts/mmh-cli all`
 - The script prefers `JAVA_HOME_17` when available.
 
 ## Code style

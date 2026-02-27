@@ -5,6 +5,7 @@ import fun.fengwk.mmh.core.service.UtilMcpService;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
 import fun.fengwk.mmh.core.utils.StringToolCallResultConverter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
  * @author fengwk
  */
 @Component
+@ConditionalOnProperty(prefix = "spring.ai.mcp.server", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class UtilMcp {
 
@@ -58,16 +60,18 @@ public class UtilMcp {
         description = """
             Scrape a single web page and return one output format.
             Supported format values: markdown, html, links, screenshot, fullscreenshot.
-            Returns extracted content, links, or screenshot base64. Returns error message when failed.""",
+            Returns extracted content, links, or media data URI.
+            For direct media URLs (image/video/audio/pdf/attachment), it returns media data URI directly regardless of format.
+            Uses smart wait by default (content stability detection).
+            Returns error message when failed.""",
         resultConverter = StringToolCallResultConverter.class)
     public String scrape(
         @ToolParam(description = "target page url (http/https). Provide a fully qualified URL") String url,
         @ToolParam(description = "output format, default markdown. Choose one of: markdown/html/links/screenshot/fullscreenshot", required = false) String format,
         @ToolParam(description = "profile mode, default default. Choose one of: default/master", required = false) String profileMode,
-        @ToolParam(description = "whether to keep only main content, default false. Set true to focus on main content only", required = false) Boolean onlyMainContent,
-        @ToolParam(description = "wait in milliseconds after navigation, default 0. You can estimate a proper waitFor by checking the returned elapsedMs", required = false) Integer waitFor
+        @ToolParam(description = "whether to keep only main content, default false. Set true to focus on main content only", required = false) Boolean onlyMainContent
     ) {
-        ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, waitFor, profileMode);
+        ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, null, profileMode);
         return mcpFormatter.format("mmh_scrape_result.ftl", response);
     }
 

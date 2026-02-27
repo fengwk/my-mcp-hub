@@ -5,6 +5,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -19,14 +20,9 @@ import java.util.Map;
 public class BrowserProperties {
 
     /**
-     * Snapshot root directory.
-     */
-    private String snapshotRoot = System.getProperty("user.home") + "/.my-mcp-hub/browser-snapshots";
-
-    /**
      * Min worker count per MCP process.
      */
-    private int workerPoolMinSizePerProcess = 1;
+    private int workerPoolMinSizePerProcess = 0;
 
     /**
      * Max worker count per MCP process.
@@ -34,39 +30,54 @@ public class BrowserProperties {
     private int workerPoolMaxSizePerProcess = 5;
 
     /**
-     * Request queue capacity.
-     */
-    private int requestQueueCapacity = 200;
-
-    /**
-     * Worker poll interval for refresh/idle checks.
-     */
-    private long workerRefreshIntervalMs = 5000;
-
-    /**
-     * Release worker pool when globally idle longer than ttl.
-     */
-    private long workerIdleTtlMs = 300000;
-
-    /**
      * Timeout when waiting for an idle worker.
      */
-    private int queueOfferTimeoutMs = 200;
-
-    /**
-     * Whether to refresh snapshot when request ends.
-     */
-    private boolean snapshotRefreshOnRequestEnd = true;
-
-    /**
-     * Snapshot publish lock timeout.
-     */
-    private int snapshotPublishLockTimeoutMs = 500;
+    private int queueOfferTimeoutMs = 15000;
 
     /**
      * Regex for profile id validation.
      */
     private String profileIdRegex = "^[a-zA-Z0-9._-]{1,64}$";
+
+    /**
+     * Default profile id for browser tasks.
+     */
+    private String defaultProfileId = "master";
+
+    /**
+     * Root directory for persistent browser profile data.
+     */
+    private String masterUserDataRoot = System.getProperty("user.home") + "/.my-mcp-hub/browser-data";
+
+    /**
+     * Extra browser args for manual master login command.
+     */
+    private List<String> masterLoginArgs = new ArrayList<>();
+
+    /**
+     * Initial page url for manual master login.
+     */
+    private String masterLoginInitialPageUrl = "";
+
+    /**
+     * Navigate timeout for manual master login initial page.
+     */
+    private long masterLoginNavigateTimeoutMs = 30000;
+
+    /**
+     * Polling interval for manual master login page-state checks.
+     */
+    private long masterLoginRefreshIntervalMs = 0;
+
+    /**
+     * Timeout for manual master login, 0 means no timeout.
+     */
+    private long masterLoginTimeoutMs = 0;
+
+    /**
+     * Timeout for master profile lock in milliseconds, 0 means no wait.
+     */
+    private long masterProfileLockTimeoutMs = 2000;
 
     /**
      * Optional fixed user agent for browser context.
@@ -143,6 +154,11 @@ public class BrowserProperties {
      * Ignore all default args for browser launch.
      */
     private boolean ignoreAllDefaultArgs = false;
+
+    /**
+     * Whether default/slave MCP workers run in headless mode.
+     */
+    private boolean slaveHeadless = true;
 
     /**
      * Whether to enable stealth script.

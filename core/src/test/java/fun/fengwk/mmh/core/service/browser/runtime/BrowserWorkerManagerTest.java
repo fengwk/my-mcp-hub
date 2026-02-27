@@ -1,23 +1,29 @@
 package fun.fengwk.mmh.core.service.browser.runtime;
 
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
+import fun.fengwk.mmh.core.service.browser.coordination.LoginLockManager;
+import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
+import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileLockedException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.lang.reflect.Field;
-import java.util.concurrent.BlockingQueue;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * @author fengwk
  */
 public class BrowserWorkerManagerTest {
+
+    @TempDir
+    Path tempDir;
 
     private BrowserWorkerManager manager;
 
@@ -29,96 +35,65 @@ public class BrowserWorkerManagerTest {
     }
 
     @Test
-    public void shouldExecuteTaskSuccessfully() {
+    public void shouldExecuteDefaultTaskSuccessfully() {
         BrowserProperties properties = new BrowserProperties();
         properties.setWorkerPoolMinSizePerProcess(1);
         properties.setWorkerPoolMaxSizePerProcess(1);
-        properties.setRequestQueueCapacity(1);
         properties.setQueueOfferTimeoutMs(100);
-        properties.setWorkerIdleTtlMs(1000);
-        properties.setWorkerRefreshIntervalMs(50);
-        manager = new BrowserWorkerManager(properties, () ->
-            new BrowserWorkerManager.BrowserSession(mock(com.microsoft.playwright.Playwright.class),
-                mock(com.microsoft.playwright.Browser.class))
-        );
+        properties.setDefaultProfileId("master");
+        properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
 
-        String result = manager.execute(browser -> "ok");
+        LoginLockManager loginLockManager = mock(LoginLockManager.class);
+        when(loginLockManager.tryAcquire(any(Path.class), anyLong(), anyLong()))
+            .thenReturn(mock(LoginLockManager.LoginLock.class));
+
+        manager = new BrowserWorkerManager(properties, loginLockManager, new ProfileIdValidator(properties));
+
+        String result = manager.executeDefault(context -> "ok");
 
         assertThat(result).isEqualTo("ok");
     }
 
     @Test
-    public void shouldFailFastWhenQueueBusy() throws Exception {
+    public void shouldPropagateDefaultTaskFailure() {
         BrowserProperties properties = new BrowserProperties();
         properties.setWorkerPoolMinSizePerProcess(1);
         properties.setWorkerPoolMaxSizePerProcess(1);
-        properties.setRequestQueueCapacity(1);
-        properties.setQueueOfferTimeoutMs(50);
-        properties.setWorkerIdleTtlMs(1000);
-        properties.setWorkerRefreshIntervalMs(50);
-        manager = new BrowserWorkerManager(properties, () ->
-            new BrowserWorkerManager.BrowserSession(mock(com.microsoft.playwright.Playwright.class),
-                mock(com.microsoft.playwright.Browser.class))
-        );
+        properties.setQueueOfferTimeoutMs(100);
+        properties.setDefaultProfileId("master");
+        properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
 
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CompletableFuture<String> first = CompletableFuture.supplyAsync(() -> manager.execute(browser -> {
-            entered.countDown();
-            release.await(1, TimeUnit.SECONDS);
-            return "first";
-        }));
+        LoginLockManager loginLockManager = mock(LoginLockManager.class);
+        when(loginLockManager.tryAcquire(any(Path.class), anyLong(), anyLong()))
+            .thenReturn(mock(LoginLockManager.LoginLock.class));
 
-        assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+        manager = new BrowserWorkerManager(properties, loginLockManager, new ProfileIdValidator(properties));
 
-        CompletableFuture<String> second = CompletableFuture.supplyAsync(() -> manager.execute(browser -> "second"));
-        waitUntilQueueSize(1, 1000);
-
-        assertThatThrownBy(() -> manager.execute(browser -> "third"))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessage("worker pool is busy");
-
-        release.countDown();
-        assertThat(first.join()).isEqualTo("first");
-        assertThat(second.join()).isEqualTo("second");
-    }
-
-    private void waitUntilQueueSize(int expected, long timeoutMs) throws Exception {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (queueSize() == expected) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-    }
-
-    private int queueSize() throws Exception {
-        Field field = BrowserWorkerManager.class.getDeclaredField("queue");
-        field.setAccessible(true);
-        BlockingQueue<?> queue = (BlockingQueue<?>) field.get(manager);
-        return queue.size();
+        assertThatThrownBy(() -> manager.executeDefault(context -> {
+            throw new RuntimeException("boom");
+        }))
+            .isInstanceOf(RuntimeException.class)
+            .hasMessage("boom");
     }
 
     @Test
-    public void shouldWrapTaskFailure() {
+    public void shouldPropagateMasterProfileLockedException() {
         BrowserProperties properties = new BrowserProperties();
-        properties.setWorkerPoolMinSizePerProcess(1);
+        properties.setWorkerPoolMinSizePerProcess(0);
         properties.setWorkerPoolMaxSizePerProcess(1);
-        properties.setRequestQueueCapacity(1);
         properties.setQueueOfferTimeoutMs(100);
-        properties.setWorkerIdleTtlMs(1000);
-        properties.setWorkerRefreshIntervalMs(50);
-        manager = new BrowserWorkerManager(properties, () ->
-            new BrowserWorkerManager.BrowserSession(mock(com.microsoft.playwright.Playwright.class),
-                mock(com.microsoft.playwright.Browser.class))
-        );
+        properties.setDefaultProfileId("master");
+        properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
+        properties.setMasterProfileLockTimeoutMs(0);
 
-        assertThatThrownBy(() -> manager.execute(browser -> {
-            throw new RuntimeException("boom");
-        }))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("browser worker execution failed");
+        LoginLockManager loginLockManager = mock(LoginLockManager.class);
+        when(loginLockManager.tryAcquire(any(Path.class), anyLong(), anyLong())).thenReturn(null);
+
+        manager = new BrowserWorkerManager(properties, loginLockManager, new ProfileIdValidator(properties));
+
+        assertThatThrownBy(() -> manager.executeMaster("master", context -> "ok"))
+            .isInstanceOf(MasterProfileLockedException.class)
+            .hasMessage(MasterProfileLockedException.DEFAULT_MESSAGE);
     }
 
 }

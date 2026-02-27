@@ -6,7 +6,6 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
-import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,11 +35,10 @@ public class MasterLoginRuntimeTest {
     @Test
     public void shouldResolveUserDataDirFromMasterUserDataRoot() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        scrapeProperties.setDefaultProfileId("master");
-        scrapeProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
-        MasterLoginRuntime runtime = new MasterLoginRuntime(scrapeProperties, validator, browserProperties);
+        browserProperties.setDefaultProfileId("master");
+        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties);
 
         Path userDataDir = runtime.resolveUserDataDir("master");
 
@@ -51,10 +49,9 @@ public class MasterLoginRuntimeTest {
     @Test
     public void shouldClosePlaywrightWhenOpenFailed() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        scrapeProperties.setDefaultProfileId("master");
-        scrapeProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        browserProperties.setDefaultProfileId("master");
+        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         Playwright playwright = mock(Playwright.class);
         BrowserType browserType = mock(BrowserType.class);
@@ -62,7 +59,7 @@ public class MasterLoginRuntimeTest {
         when(browserType.launchPersistentContext(any(Path.class), any(BrowserType.LaunchPersistentContextOptions.class)))
             .thenThrow(new RuntimeException("boom"));
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(scrapeProperties, validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
 
         assertThatThrownBy(() -> runtime.open("master"))
             .isInstanceOf(IllegalStateException.class)
@@ -83,13 +80,12 @@ public class MasterLoginRuntimeTest {
         browserProperties.setBrowserChannel("chrome");
         browserProperties.setExecutablePath(chromePath.toString());
         browserProperties.setIgnoreDefaultArgs(List.of("--enable-automation"));
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        scrapeProperties.setDefaultProfileId("master");
-        scrapeProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
-        scrapeProperties.setMasterLoginArgs(List.of("--force-device-scale-factor=2"));
-        scrapeProperties.setMasterLoginInitialPageUrl("https://example.com");
-        scrapeProperties.setNavigateTimeoutMs(2000);
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        browserProperties.setDefaultProfileId("master");
+        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
+        browserProperties.setMasterLoginArgs(List.of("--force-device-scale-factor=2"));
+        browserProperties.setMasterLoginInitialPageUrl("https://example.com");
+        browserProperties.setMasterLoginNavigateTimeoutMs(2000);
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         Playwright playwright = mock(Playwright.class);
         BrowserType browserType = mock(BrowserType.class);
@@ -102,7 +98,7 @@ public class MasterLoginRuntimeTest {
             .thenReturn(browserContext);
         when(browserContext.pages()).thenReturn(List.of(page));
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(scrapeProperties, validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
         MasterLoginRuntime.HeadedSession session = runtime.open("master");
 
         assertThat(session.context()).isEqualTo(browserContext);
@@ -125,11 +121,10 @@ public class MasterLoginRuntimeTest {
     @Test
     public void shouldReuseAutoCreatedPageIfAvailable() {
         BrowserProperties browserProperties = new BrowserProperties();
-        ScrapeProperties scrapeProperties = new ScrapeProperties();
-        scrapeProperties.setDefaultProfileId("master");
-        scrapeProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
-        scrapeProperties.setMasterLoginInitialPageUrl("https://example.com");
-        ProfileIdValidator validator = new ProfileIdValidator(browserProperties, scrapeProperties);
+        browserProperties.setDefaultProfileId("master");
+        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
+        browserProperties.setMasterLoginInitialPageUrl("https://example.com");
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         Playwright playwright = mock(Playwright.class);
         BrowserType browserType = mock(BrowserType.class);
@@ -140,7 +135,7 @@ public class MasterLoginRuntimeTest {
             .thenReturn(browserContext);
         when(browserContext.pages()).thenReturn(List.of(), List.of(page));
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(scrapeProperties, validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
         runtime.open("master");
 
         verify(browserContext, never()).newPage();

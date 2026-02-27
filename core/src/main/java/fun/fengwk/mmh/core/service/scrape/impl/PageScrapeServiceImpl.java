@@ -1,9 +1,10 @@
 package fun.fengwk.mmh.core.service.scrape.impl;
 
 import fun.fengwk.mmh.core.service.browser.runtime.BrowserTaskExecutor;
+import fun.fengwk.mmh.core.service.browser.runtime.ProfileType;
+import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.scrape.PageScrapeService;
 import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
-import fun.fengwk.mmh.core.service.scrape.model.ScrapeProfileMode;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeFormat;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeRequest;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
@@ -13,7 +14,6 @@ import fun.fengwk.mmh.core.service.scrape.parser.MarkdownPostProcessor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownRenderer;
 import fun.fengwk.convention4j.common.lang.StringUtils;
 import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileLockedException;
-import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileTaskExecutor;
 import fun.fengwk.mmh.core.service.scrape.runtime.ScrapeBrowserTask;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
@@ -29,11 +29,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PageScrapeServiceImpl implements PageScrapeService {
 
-    private static final String MASTER_PROFILE_LOCKED_MESSAGE =
-        "Master profile is in use and temporarily unavailable; please retry later or use default mode.";
-
     private final BrowserTaskExecutor browserTaskExecutor;
-    private final MasterProfileTaskExecutor masterProfileTaskExecutor;
+    private final BrowserProperties browserProperties;
     private final ScrapeProperties scrapeProperties;
     private final HtmlMainContentCleaner htmlMainContentCleaner;
     private final MarkdownRenderer markdownRenderer;
@@ -46,8 +43,8 @@ public class PageScrapeServiceImpl implements PageScrapeService {
         try {
             validateRequest(request);
             ScrapeFormat format = ScrapeFormat.fromValue(request.getFormat());
-            ScrapeProfileMode profileMode = ScrapeProfileMode.fromValue(request.getProfileMode());
-            String profileId = scrapeProperties.getDefaultProfileId();
+            ProfileType profileType = ProfileType.fromValue(request.getProfileMode());
+            String profileId = browserProperties.getDefaultProfileId();
             ScrapeBrowserTask scrapeTask = new ScrapeBrowserTask(
                 request,
                 format,
@@ -57,9 +54,7 @@ public class PageScrapeServiceImpl implements PageScrapeService {
                 markdownPostProcessor,
                 linkExtractor
             );
-            ScrapeResponse response = profileMode == ScrapeProfileMode.MASTER
-                ? masterProfileTaskExecutor.execute(profileId, scrapeTask)
-                : browserTaskExecutor.execute(profileId, scrapeTask);
+            ScrapeResponse response = browserTaskExecutor.execute(profileId, profileType, scrapeTask);
             if (response == null) {
                 log.warn("scrape response is null, url={}", request.getUrl());
                 return ScrapeResponse.builder()
@@ -71,10 +66,16 @@ public class PageScrapeServiceImpl implements PageScrapeService {
             response.setElapsedMs(System.currentTimeMillis() - startAt);
             return response;
         } catch (MasterProfileLockedException ex) {
-            log.warn("master profile locked, url={}", request == null ? "" : request.getUrl());
+            log.warn(
+                "master profile locked, url={}, profileMode={}, error={}",
+                request == null ? "" : request.getUrl(),
+                request == null ? "" : request.getProfileMode(),
+                ex.getMessage()
+            );
+            String error = StringUtils.isBlank(ex.getMessage()) ? MasterProfileLockedException.DEFAULT_MESSAGE : ex.getMessage();
             return ScrapeResponse.builder()
                 .statusCode(500)
-                .error(MASTER_PROFILE_LOCKED_MESSAGE)
+                .error(error)
                 .elapsedMs(System.currentTimeMillis() - startAt)
                 .build();
         } catch (IllegalArgumentException ex) {
@@ -85,7 +86,14 @@ public class PageScrapeServiceImpl implements PageScrapeService {
                 .elapsedMs(System.currentTimeMillis() - startAt)
                 .build();
         } catch (Exception ex) {
-            log.warn("scrape failed, url={}, error={}", request == null ? "" : request.getUrl(), ex.getMessage());
+            log.warn(
+                "scrape failed, url={}, profileMode={}, format={}, error={}",
+                request == null ? "" : request.getUrl(),
+                request == null ? "" : request.getProfileMode(),
+                request == null ? "" : request.getFormat(),
+                ex.getMessage(),
+                ex
+            );
             return ScrapeResponse.builder()
                 .statusCode(500)
                 .error(ex.getMessage())
@@ -109,7 +117,7 @@ public class PageScrapeServiceImpl implements PageScrapeService {
             throw new IllegalArgumentException("waitFor out of range");
         }
         ScrapeFormat.fromValue(request.getFormat());
-        ScrapeProfileMode.fromValue(request.getProfileMode());
+        ProfileType.fromValue(request.getProfileMode());
     }
 
 }

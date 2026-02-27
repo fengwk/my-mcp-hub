@@ -53,4 +53,38 @@ public class MarkdownPostProcessorTest {
             .isEqualTo("![](a.png)![](b.png)");
     }
 
+    @Test
+    public void shouldMergeAdjacentCodeBlocksWithSameFence() {
+        String input = """
+            ```java
+            int a = 1;
+            ```
+            ```java
+            int b = 2;
+            ```
+            """;
+
+        assertThat(markdownPostProcessor.process(input)).isEqualTo("""
+            ```java
+            int a = 1;
+            int b = 2;
+            ```
+            """.trim());
+    }
+
+    @Test
+    public void shouldNormalizeOrderedListNumbers() {
+        String input = """
+            1. first
+            1. second
+            1. third
+            """;
+
+        assertThat(markdownPostProcessor.process(input)).isEqualTo("""
+            1. first
+            2. second
+            3. third
+            """.trim());
+    }
+
 }

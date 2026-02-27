@@ -7,6 +7,7 @@ import org.springframework.ai.mcp.server.common.autoconfigure.McpServerAutoConfi
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Bean;
  * @author fengwk
  */
 @AutoConfiguration(before = McpServerAutoConfiguration.class)
+@ConditionalOnProperty(prefix = "spring.ai.mcp.server", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class ConcurrentStdioServerTransportAutoConfiguration {
 
     @Bean
