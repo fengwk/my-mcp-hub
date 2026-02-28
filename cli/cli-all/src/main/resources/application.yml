@@ -109,7 +109,7 @@ mmh:
     # Root directory for persistent browser profile data
     master-user-data-root: ${MMH_BROWSER_MASTER_USER_DATA_ROOT:${user.home}/.my-mcp-hub/browser-data}
     # Extra args for manual master login browser
-    master-login-args: ["--force-device-scale-factor=1.85", "--lang=zh-CN"]
+    master-login-args: ["--force-device-scale-factor=${FORCE_DEVICE_SCALE_FACTOR:1}", "--lang=zh-CN"]
     # Initial page url for manual master login
     master-login-initial-page-url: "https://google.com"
     # Navigate timeout for manual master login initial page
