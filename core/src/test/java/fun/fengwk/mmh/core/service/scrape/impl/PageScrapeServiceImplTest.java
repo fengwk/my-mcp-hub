@@ -2,7 +2,6 @@ package fun.fengwk.mmh.core.service.scrape.impl;
 
 import fun.fengwk.mmh.core.service.browser.runtime.BrowserTaskExecutor;
 import fun.fengwk.mmh.core.service.browser.runtime.ProfileType;
-import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.scrape.ScrapeProperties;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeRequest;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
@@ -11,11 +10,18 @@ import fun.fengwk.mmh.core.service.scrape.parser.LinkExtractor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownPostProcessor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownRenderer;
 import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileLockedException;
+
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -49,12 +55,9 @@ public class PageScrapeServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        BrowserProperties browserProperties = new BrowserProperties();
-        browserProperties.setDefaultProfileId("master");
         ScrapeProperties scrapeProperties = new ScrapeProperties();
         pageScrapeService = new PageScrapeServiceImpl(
             browserTaskExecutor,
-            browserProperties,
             scrapeProperties,
             htmlMainContentCleaner,
             markdownRenderer,
@@ -71,7 +74,7 @@ public class PageScrapeServiceImplTest {
 
         assertThat(response.getStatusCode()).isEqualTo(400);
         assertThat(response.getError()).isEqualTo("url is blank");
-        verify(browserTaskExecutor, never()).execute(any(), any(), any());
+        verify(browserTaskExecutor, never()).execute(any(ProfileType.class), any());
     }
 
     @Test
@@ -102,7 +105,7 @@ public class PageScrapeServiceImplTest {
 
         assertThat(response.getStatusCode()).isEqualTo(400);
         assertThat(response.getError()).contains("unsupported profileMode");
-        verify(browserTaskExecutor, never()).execute(any(), any(), any());
+        verify(browserTaskExecutor, never()).execute(any(ProfileType.class), any());
     }
 
     @Test
@@ -116,9 +119,69 @@ public class PageScrapeServiceImplTest {
     }
 
     @Test
+    public void shouldUseQuickMediaPathForDefaultProfile() throws Exception {
+        byte[] pdfBytes = "%PDF-1.4\nmmh\n".getBytes(StandardCharsets.UTF_8);
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/sample.pdf", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/pdf");
+            exchange.sendResponseHeaders(200, pdfBytes.length);
+            try (OutputStream outputStream = exchange.getResponseBody()) {
+                outputStream.write(pdfBytes);
+            }
+        });
+        server.start();
+
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/sample.pdf";
+        try {
+            ScrapeResponse response = pageScrapeService.scrape(
+                ScrapeRequest.builder().url(url).format("markdown").build()
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(200);
+            assertThat(response.getFormat()).isEqualTo("media");
+            assertThat(response.getScreenshotMime()).isEqualTo("application/pdf");
+            assertThat(response.getScreenshotBase64()).isEqualTo(
+                "data:application/pdf;base64," + Base64.getEncoder().encodeToString(pdfBytes)
+            );
+            verify(browserTaskExecutor, never()).execute(any(ProfileType.class), any());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void shouldFallbackToBrowserWhenQuickMediaPathDoesNotMatch() throws Exception {
+        byte[] htmlBytes = "<html><body>not-media</body></html>".getBytes(StandardCharsets.UTF_8);
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/sample.pdf", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "text/html; charset=UTF-8");
+            exchange.sendResponseHeaders(200, htmlBytes.length);
+            try (OutputStream outputStream = exchange.getResponseBody()) {
+                outputStream.write(htmlBytes);
+            }
+        });
+        server.start();
+
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/sample.pdf";
+        ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
+        when(browserTaskExecutor.execute(eq(ProfileType.DEFAULT), any())).thenReturn(expected);
+
+        try {
+            ScrapeResponse response = pageScrapeService.scrape(
+                ScrapeRequest.builder().url(url).format("html").build()
+            );
+
+            assertThat(response).isEqualTo(expected);
+            verify(browserTaskExecutor).execute(eq(ProfileType.DEFAULT), any());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     public void shouldUseDefaultProfileId() {
         ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
-        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.DEFAULT), any())).thenReturn(expected);
+        when(browserTaskExecutor.execute(eq(ProfileType.DEFAULT), any())).thenReturn(expected);
 
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder()
@@ -128,13 +191,29 @@ public class PageScrapeServiceImplTest {
         );
 
         assertThat(response).isEqualTo(expected);
-        verify(browserTaskExecutor).execute(eq("master"), eq(ProfileType.DEFAULT), any());
+        verify(browserTaskExecutor).execute(eq(ProfileType.DEFAULT), any());
+    }
+
+    @Test
+    public void shouldTrimUrlBeforeExecute() {
+        ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
+        when(browserTaskExecutor.execute(eq(ProfileType.DEFAULT), any())).thenReturn(expected);
+
+        ScrapeResponse response = pageScrapeService.scrape(
+            ScrapeRequest.builder()
+                .url("  https://example.com  ")
+                .format("html")
+                .build()
+        );
+
+        assertThat(response).isEqualTo(expected);
+        verify(browserTaskExecutor).execute(eq(ProfileType.DEFAULT), any());
     }
 
     @Test
     public void shouldUseMasterProfileWhenRequested() {
         ScrapeResponse expected = ScrapeResponse.builder().statusCode(200).format("html").content("ok").build();
-        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.MASTER), any())).thenReturn(expected);
+        when(browserTaskExecutor.execute(eq(ProfileType.MASTER), any())).thenReturn(expected);
 
         ScrapeResponse response = pageScrapeService.scrape(
             ScrapeRequest.builder()
@@ -145,12 +224,12 @@ public class PageScrapeServiceImplTest {
         );
 
         assertThat(response).isEqualTo(expected);
-        verify(browserTaskExecutor).execute(eq("master"), eq(ProfileType.MASTER), any());
+        verify(browserTaskExecutor).execute(eq(ProfileType.MASTER), any());
     }
 
     @Test
     public void shouldReturn500WhenMasterProfileLocked() {
-        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.MASTER), any()))
+        when(browserTaskExecutor.execute(eq(ProfileType.MASTER), any()))
             .thenThrow(new MasterProfileLockedException());
 
         ScrapeResponse response = pageScrapeService.scrape(
@@ -167,7 +246,7 @@ public class PageScrapeServiceImplTest {
 
     @Test
     public void shouldReturn500WhenExecutorThrows() {
-        when(browserTaskExecutor.execute(eq("master"), eq(ProfileType.DEFAULT), any()))
+        when(browserTaskExecutor.execute(eq(ProfileType.DEFAULT), any()))
             .thenThrow(new RuntimeException("boom"));
 
         ScrapeResponse response = pageScrapeService.scrape(

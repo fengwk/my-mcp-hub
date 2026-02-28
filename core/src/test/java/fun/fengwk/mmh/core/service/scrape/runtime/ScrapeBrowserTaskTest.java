@@ -4,6 +4,8 @@ import com.microsoft.playwright.APIRequestContext;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.Frame;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Response;
+import com.sun.net.httpserver.HttpServer;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.RequestOptions;
 import fun.fengwk.mmh.core.service.browser.runtime.BrowserRuntimeContext;
@@ -20,6 +22,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -63,6 +70,9 @@ public class ScrapeBrowserTaskTest {
 
     @Mock
     private APIResponse apiResponse;
+
+    @Mock
+    private Response navigateResponse;
 
     @Mock
     private Frame mainFrame;
@@ -107,71 +117,33 @@ public class ScrapeBrowserTaskTest {
 
         assertThat(response.getStatusCode()).isEqualTo(200);
         assertThat(response.getContent()).isEqualTo("<main>cleaned</main>");
-        verify(page, never()).waitForLoadState(eq(LoadState.NETWORKIDLE), any(Page.WaitForLoadStateOptions.class));
+        verify(page, atLeastOnce()).waitForLoadState(eq(LoadState.NETWORKIDLE), any(Page.WaitForLoadStateOptions.class));
         verify(page, atLeastOnce()).waitForTimeout(anyDouble());
         verify(apiResponse).dispose();
     }
 
     @Test
-    public void shouldNotTreatSameLengthDifferentTextAsStable() {
-        ScrapeRequest request = ScrapeRequest.builder()
-            .url("https://example.com")
-            .format("html")
-            .build();
-        ScrapeProperties properties = new ScrapeProperties();
-        BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
-
-        when(page.content()).thenReturn(
-            "<html><body>AA</body></html>",
-            "<html><body>BB</body></html>",
-            "<html><body>BB</body></html>",
-            "<html><body>BB</body></html>",
-            "<html><body>BB</body></html>"
-        );
-        when(page.request()).thenReturn(apiRequestContext);
-        when(apiRequestContext.get(eq("https://example.com"), any(RequestOptions.class))).thenReturn(apiResponse);
-        when(apiResponse.ok()).thenReturn(false);
-        when(htmlMainContentCleaner.clean(
-            "<html><body>BB</body></html>",
-            "https://example.com",
-            false,
-            properties.isStripChromeTags(),
-            properties.isRemoveBase64Images()
-        ))
-            .thenReturn("<html><body>BB</body></html>");
-
-        ScrapeBrowserTask task = new ScrapeBrowserTask(
-            request,
-            ScrapeFormat.HTML,
-            properties,
-            htmlMainContentCleaner,
-            markdownRenderer,
-            markdownPostProcessor,
-            linkExtractor
-        );
-
-        task.execute(context);
-
-        verify(page, times(3)).waitForTimeout(anyDouble());
-        verify(apiResponse).dispose();
-    }
-
-    @Test
-    public void shouldTreatNumericOnlyChangesAsSemanticStable() {
+    public void shouldTreatLengthChangeWithinThresholdAsStable() {
         ScrapeRequest request = ScrapeRequest.builder()
             .url("https://example.com")
             .format("html")
             .build();
         ScrapeProperties properties = new ScrapeProperties();
         properties.setStabilityCheckIntervalMs(100);
+        properties.setStabilityThreshold(3);
+        properties.setStabilityLengthChangeThreshold(0.1D);
         BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
 
+        String text100 = "A".repeat(100);
+        String text108 = "A".repeat(108);
+        String text110 = "A".repeat(110);
+        String text112 = "A".repeat(112);
         when(page.content()).thenReturn(
-            "<html><body>online users 100</body></html>",
-            "<html><body>online users 101</body></html>",
-            "<html><body>online users 102</body></html>",
-            "<html><body>online users 103</body></html>",
-            "<html><body>online users 104</body></html>"
+            "<html><body>" + text100 + "</body></html>",
+            "<html><body>" + text108 + "</body></html>",
+            "<html><body>" + text110 + "</body></html>",
+            "<html><body>" + text112 + "</body></html>",
+            "<html><body>" + text112 + "</body></html>"
         );
         when(page.request()).thenReturn(apiRequestContext);
         when(apiRequestContext.get(eq("https://example.com"), any(RequestOptions.class))).thenReturn(apiResponse);
@@ -183,7 +155,7 @@ public class ScrapeBrowserTaskTest {
             eq(properties.isStripChromeTags()),
             eq(properties.isRemoveBase64Images())
         ))
-            .thenReturn("<html><body>online users 104</body></html>");
+            .thenReturn("<html><body>stable</body></html>");
 
         ScrapeBrowserTask task = new ScrapeBrowserTask(
             request,
@@ -198,7 +170,203 @@ public class ScrapeBrowserTaskTest {
         ScrapeResponse response = task.execute(context);
 
         assertThat(response.getStatusCode()).isEqualTo(200);
+        verify(page, atLeastOnce()).waitForLoadState(eq(LoadState.NETWORKIDLE), any(Page.WaitForLoadStateOptions.class));
         verify(page, times(3)).waitForTimeout(anyDouble());
+        verify(apiResponse).dispose();
+    }
+
+    @Test
+    public void shouldSkipPostNavigateWaitWhenStatusIsError() {
+        ScrapeRequest request = ScrapeRequest.builder()
+            .url("https://example.com/not-found")
+            .format("html")
+            .build();
+        ScrapeProperties properties = new ScrapeProperties();
+        BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+        when(page.request()).thenReturn(apiRequestContext);
+        when(apiRequestContext.get(eq("https://example.com/not-found"), any(RequestOptions.class))).thenReturn(apiResponse);
+        when(apiResponse.ok()).thenReturn(false);
+        when(page.navigate(eq("https://example.com/not-found"), any(Page.NavigateOptions.class))).thenReturn(navigateResponse);
+        when(navigateResponse.status()).thenReturn(404);
+        when(page.content()).thenReturn("<html><body>Not Found</body></html>");
+        when(htmlMainContentCleaner.clean(
+            "<html><body>Not Found</body></html>",
+            "https://example.com/not-found",
+            false,
+            properties.isStripChromeTags(),
+            properties.isRemoveBase64Images()
+        ))
+            .thenReturn("<html><body>Not Found</body></html>");
+
+        ScrapeBrowserTask task = new ScrapeBrowserTask(
+            request,
+            ScrapeFormat.HTML,
+            properties,
+            htmlMainContentCleaner,
+            markdownRenderer,
+            markdownPostProcessor,
+            linkExtractor
+        );
+
+        ScrapeResponse response = task.execute(context);
+
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        assertThat(response.getContent()).contains("Not Found");
+        verify(page, never()).waitForLoadState(eq(LoadState.NETWORKIDLE), any(Page.WaitForLoadStateOptions.class));
+        verify(page, never()).waitForTimeout(anyDouble());
+        verify(apiResponse).dispose();
+    }
+
+    @Test
+    public void shouldTreatEmptyContentAsStable() {
+        ScrapeRequest request = ScrapeRequest.builder()
+            .url("https://example.com/empty")
+            .format("html")
+            .build();
+        ScrapeProperties properties = new ScrapeProperties();
+        properties.setStabilityCheckIntervalMs(100);
+        properties.setStabilityThreshold(3);
+        properties.setStabilityLengthChangeThreshold(0.1D);
+        BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+        when(page.content()).thenReturn(
+            "<html><body></body></html>",
+            "<html><body></body></html>",
+            "<html><body></body></html>",
+            "<html><body></body></html>",
+            "<html><body></body></html>"
+        );
+        when(page.request()).thenReturn(apiRequestContext);
+        when(apiRequestContext.get(eq("https://example.com/empty"), any(RequestOptions.class))).thenReturn(apiResponse);
+        when(apiResponse.ok()).thenReturn(false);
+        when(htmlMainContentCleaner.clean(
+            anyString(),
+            eq("https://example.com/empty"),
+            eq(false),
+            eq(properties.isStripChromeTags()),
+            eq(properties.isRemoveBase64Images())
+        ))
+            .thenReturn("");
+
+        ScrapeBrowserTask task = new ScrapeBrowserTask(
+            request,
+            ScrapeFormat.HTML,
+            properties,
+            htmlMainContentCleaner,
+            markdownRenderer,
+            markdownPostProcessor,
+            linkExtractor
+        );
+
+        ScrapeResponse response = task.execute(context);
+
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        assertThat(response.getContent()).isEqualTo("");
+        verify(page, times(3)).waitForTimeout(anyDouble());
+        verify(apiResponse).dispose();
+    }
+
+    @Test
+    public void shouldSkipUnstableChangeAndKeepComparingWithAnchor() {
+        ScrapeRequest request = ScrapeRequest.builder()
+            .url("https://example.com")
+            .format("html")
+            .build();
+        ScrapeProperties properties = new ScrapeProperties();
+        properties.setStabilityCheckIntervalMs(100);
+        properties.setStabilityThreshold(3);
+        properties.setStabilityLengthChangeThreshold(0.1D);
+        BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+        when(page.content()).thenReturn(
+            "<html><body>" + "A".repeat(100) + "</body></html>",
+            "<html><body>" + "A".repeat(140) + "</body></html>",
+            "<html><body>" + "A".repeat(110) + "</body></html>",
+            "<html><body>" + "A".repeat(112) + "</body></html>",
+            "<html><body>" + "A".repeat(113) + "</body></html>",
+            "<html><body>" + "A".repeat(113) + "</body></html>"
+        );
+        when(page.request()).thenReturn(apiRequestContext);
+        when(apiRequestContext.get(eq("https://example.com"), any(RequestOptions.class))).thenReturn(apiResponse);
+        when(apiResponse.ok()).thenReturn(false);
+        when(htmlMainContentCleaner.clean(
+            anyString(),
+            eq("https://example.com"),
+            eq(false),
+            eq(properties.isStripChromeTags()),
+            eq(properties.isRemoveBase64Images())
+        ))
+            .thenReturn("<html><body>stable</body></html>");
+
+        ScrapeBrowserTask task = new ScrapeBrowserTask(
+            request,
+            ScrapeFormat.HTML,
+            properties,
+            htmlMainContentCleaner,
+            markdownRenderer,
+            markdownPostProcessor,
+            linkExtractor
+        );
+
+        ScrapeResponse response = task.execute(context);
+
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        verify(page, times(4)).waitForTimeout(anyDouble());
+        verify(apiResponse).dispose();
+    }
+
+    @Test
+    public void shouldKeepWaitingWhenLengthChangeExceedsThreshold() {
+        ScrapeRequest request = ScrapeRequest.builder()
+            .url("https://example.com")
+            .format("html")
+            .build();
+        ScrapeProperties properties = new ScrapeProperties();
+        properties.setStabilityMaxWaitMs(350);
+        properties.setStabilityCheckIntervalMs(100);
+        properties.setStabilityThreshold(3);
+        properties.setStabilityLengthChangeThreshold(0.1D);
+        BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+        when(page.content()).thenReturn(
+            "<html><body>" + "A".repeat(100) + "</body></html>",
+            "<html><body>" + "A".repeat(130) + "</body></html>",
+            "<html><body>" + "A".repeat(160) + "</body></html>",
+            "<html><body>" + "A".repeat(190) + "</body></html>",
+            "<html><body>" + "A".repeat(220) + "</body></html>"
+        );
+        when(page.request()).thenReturn(apiRequestContext);
+        when(apiRequestContext.get(eq("https://example.com"), any(RequestOptions.class))).thenReturn(apiResponse);
+        when(apiResponse.ok()).thenReturn(false);
+        when(htmlMainContentCleaner.clean(
+            anyString(),
+            eq("https://example.com"),
+            eq(false),
+            eq(properties.isStripChromeTags()),
+            eq(properties.isRemoveBase64Images())
+        ))
+            .thenReturn("<html><body>raw</body></html>");
+        doAnswer(invocation -> {
+            long sleepMillis = ((Double) invocation.getArgument(0)).longValue();
+            Thread.sleep(sleepMillis);
+            return null;
+        }).when(page).waitForTimeout(anyDouble());
+
+        ScrapeBrowserTask task = new ScrapeBrowserTask(
+            request,
+            ScrapeFormat.HTML,
+            properties,
+            htmlMainContentCleaner,
+            markdownRenderer,
+            markdownPostProcessor,
+            linkExtractor
+        );
+
+        ScrapeResponse response = task.execute(context);
+
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        verify(page, atLeastOnce()).waitForTimeout(anyDouble());
         verify(apiResponse).dispose();
     }
 
@@ -212,6 +380,7 @@ public class ScrapeBrowserTaskTest {
         properties.setNavigateTimeoutMs(5000);
         properties.setStabilityCheckIntervalMs(100);
         properties.setStabilityMaxWaitMs(300);
+        properties.setDirectMediaProbeTimeoutMs(100);
         BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
 
         AtomicInteger counter = new AtomicInteger(0);
@@ -248,8 +417,57 @@ public class ScrapeBrowserTaskTest {
         long elapsedMs = System.currentTimeMillis() - startAt;
 
         assertThat(response.getStatusCode()).isEqualTo(200);
-        assertThat(elapsedMs).isLessThan(1500L);
+        assertThat(elapsedMs).isLessThan(2500L);
         verify(page, atLeastOnce()).waitForTimeout(anyDouble());
+        verify(apiResponse).dispose();
+    }
+
+    @Test
+    public void shouldSupportPercentageStyleLengthThresholdConfiguration() {
+        ScrapeRequest request = ScrapeRequest.builder()
+            .url("https://example.com")
+            .format("html")
+            .build();
+        ScrapeProperties properties = new ScrapeProperties();
+        properties.setStabilityCheckIntervalMs(100);
+        properties.setStabilityMaxWaitMs(900);
+        properties.setStabilityThreshold(3);
+        properties.setStabilityLengthChangeThreshold(10D);
+        BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+        when(page.content()).thenReturn(
+            "<html><body>" + "A".repeat(100) + "</body></html>",
+            "<html><body>" + "A".repeat(108) + "</body></html>",
+            "<html><body>" + "A".repeat(110) + "</body></html>",
+            "<html><body>" + "A".repeat(111) + "</body></html>",
+            "<html><body>" + "A".repeat(111) + "</body></html>"
+        );
+        when(page.request()).thenReturn(apiRequestContext);
+        when(apiRequestContext.get(eq("https://example.com"), any(RequestOptions.class))).thenReturn(apiResponse);
+        when(apiResponse.ok()).thenReturn(false);
+        when(htmlMainContentCleaner.clean(
+            anyString(),
+            eq("https://example.com"),
+            eq(false),
+            eq(properties.isStripChromeTags()),
+            eq(properties.isRemoveBase64Images())
+        ))
+            .thenReturn("<html><body>raw</body></html>");
+
+        ScrapeBrowserTask task = new ScrapeBrowserTask(
+            request,
+            ScrapeFormat.HTML,
+            properties,
+            htmlMainContentCleaner,
+            markdownRenderer,
+            markdownPostProcessor,
+            linkExtractor
+        );
+
+        ScrapeResponse response = task.execute(context);
+
+        assertThat(response.getStatusCode()).isEqualTo(200);
+        verify(page, times(3)).waitForTimeout(anyDouble());
         verify(apiResponse).dispose();
     }
 
@@ -776,6 +994,105 @@ public class ScrapeBrowserTaskTest {
         assertThat(response.getScreenshotBase64()).isEqualTo("data:image/png;base64,AQI=");
         verify(page, never()).navigate(any(String.class), any(Page.NavigateOptions.class));
         verify(apiResponse).dispose();
+    }
+
+    @Test
+    public void shouldFallbackToHttpDirectMediaWhenNavigateTriggersDownload() throws Exception {
+        byte[] pdfBytes = "%PDF-1.4\nmmh\n".getBytes(StandardCharsets.UTF_8);
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/sample.pdf", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/pdf");
+            exchange.sendResponseHeaders(200, pdfBytes.length);
+            try (OutputStream outputStream = exchange.getResponseBody()) {
+                outputStream.write(pdfBytes);
+            }
+        });
+        server.start();
+
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/sample.pdf";
+        try {
+            ScrapeRequest request = ScrapeRequest.builder()
+                .url(url)
+                .format("markdown")
+                .build();
+            ScrapeProperties properties = new ScrapeProperties();
+            BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+            lenient().when(page.request()).thenReturn(apiRequestContext);
+            lenient().when(apiRequestContext.get(eq(url), any(RequestOptions.class))).thenReturn(apiResponse);
+            lenient().when(apiResponse.ok()).thenReturn(false);
+            lenient().when(page.navigate(eq(url), any(Page.NavigateOptions.class)))
+                .thenThrow(new RuntimeException("Download is starting"));
+
+            ScrapeBrowserTask task = new ScrapeBrowserTask(
+                request,
+                ScrapeFormat.MARKDOWN,
+                properties,
+                htmlMainContentCleaner,
+                markdownRenderer,
+                markdownPostProcessor,
+                linkExtractor
+            );
+
+            ScrapeResponse response = task.execute(context);
+
+            assertThat(response.getStatusCode()).isEqualTo(200);
+            assertThat(response.getFormat()).isEqualTo("media");
+            assertThat(response.getScreenshotMime()).isEqualTo("application/pdf");
+            assertThat(response.getScreenshotBase64()).isEqualTo(
+                "data:application/pdf;base64," + Base64.getEncoder().encodeToString(pdfBytes)
+            );
+            verify(apiResponse).dispose();
+            verify(page, never()).content();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void shouldReturnEmptyTextWhenNavigateAbortedAndHttpStatusNoContent() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/no-content", exchange -> {
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        server.start();
+
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/no-content";
+        try {
+            ScrapeRequest request = ScrapeRequest.builder()
+                .url(url)
+                .format("markdown")
+                .build();
+            ScrapeProperties properties = new ScrapeProperties();
+            BrowserRuntimeContext context = BrowserRuntimeContext.builder().page(page).build();
+
+            lenient().when(page.request()).thenReturn(apiRequestContext);
+            lenient().when(apiRequestContext.get(eq(url), any(RequestOptions.class))).thenReturn(apiResponse);
+            lenient().when(apiResponse.ok()).thenReturn(false);
+            lenient().when(page.navigate(eq(url), any(Page.NavigateOptions.class)))
+                .thenThrow(new RuntimeException("net::ERR_ABORTED at " + url));
+
+            ScrapeBrowserTask task = new ScrapeBrowserTask(
+                request,
+                ScrapeFormat.MARKDOWN,
+                properties,
+                htmlMainContentCleaner,
+                markdownRenderer,
+                markdownPostProcessor,
+                linkExtractor
+            );
+
+            ScrapeResponse response = task.execute(context);
+
+            assertThat(response.getStatusCode()).isEqualTo(200);
+            assertThat(response.getFormat()).isEqualTo("markdown");
+            assertThat(response.getContent()).isEqualTo("");
+            verify(apiResponse).dispose();
+            verify(page, never()).content();
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

@@ -128,12 +128,14 @@ mmh:
     # Remove embedded base64/data images from markdown
     remove-base64-images: true
     # Direct-media probe timeout in ms
-    direct-media-probe-timeout-ms: 3000
+    direct-media-probe-timeout-ms: 10000
     # Enable smart wait (content stability detection) when waitFor is not provided
     smart-wait-enabled: true
     # Smart wait polling interval in ms
-    stability-check-interval-ms: 1000
+    stability-check-interval-ms: 500
     # Smart wait maximum duration in ms
     stability-max-wait-ms: 15000
     # Smart wait stable rounds required before considered settled
-    stability-threshold: 2
+    stability-threshold: 3
+    # Smart wait text-length change threshold ratio between rounds (0.1 = 10%)
+    stability-length-change-threshold: 0.1

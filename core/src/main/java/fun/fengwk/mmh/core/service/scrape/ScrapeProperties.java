@@ -42,7 +42,7 @@ public class ScrapeProperties {
     /**
      * Smart wait polling interval in milliseconds.
      */
-    private int stabilityCheckIntervalMs = 1000;
+    private int stabilityCheckIntervalMs = 500;
 
     /**
      * Smart wait maximum duration in milliseconds.
@@ -52,6 +52,12 @@ public class ScrapeProperties {
     /**
      * Smart wait stable rounds required before considered settled.
      */
-    private int stabilityThreshold = 2;
+    private int stabilityThreshold = 3;
+
+    /**
+     * Smart wait text length change ratio threshold between rounds.
+     * 0.1 means 10%.
+     */
+    private double stabilityLengthChangeThreshold = 0.1D;
 
 }

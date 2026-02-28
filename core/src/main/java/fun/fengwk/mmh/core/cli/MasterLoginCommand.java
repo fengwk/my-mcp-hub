@@ -2,7 +2,7 @@ package fun.fengwk.mmh.core.cli;
 
 import fun.fengwk.mmh.core.service.browser.coordination.LoginLockManager;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
-import fun.fengwk.mmh.core.service.scrape.runtime.MasterLoginRuntime;
+import fun.fengwk.mmh.core.service.browser.runtime.MasterLoginRuntime;
 
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Page;

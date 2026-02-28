@@ -23,7 +23,7 @@ import java.util.HashMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * mmh_scrape 工具层功能穷举验证 (75 cases)
+ * mmh_scrape service 层功能穷举验证 (75 cases)
  */
 @Slf4j
 @SpringBootTest(classes = CoreTestApplication.class)
@@ -307,7 +307,7 @@ public class MmhScrapeExhaustiveTest {
             log.info("## 结论");
             log.info("===========================================");
             List<String> conclusions = new ArrayList<>();
-            conclusions.add(stats.get("A").fail == 0 ? "✓ normal-page 功能已穷举验证通过 (format: null/markdown/html/links, profileMode: null/default/master, onlyMainContent: null/false/true)"
+            conclusions.add(stats.get("A").fail == 0 ? "✓ normal-page 功能已穷举验证通过 (service format: null/markdown/html/links, profileMode: null/default/master, onlyMainContent: null/false/true)"
                 : "✗ normal-page 功能存在 " + stats.get("A").fail + " 个失败用例");
             conclusions.add(stats.get("B").fail == 0 ? "✓ direct-media 功能已穷举验证通过 (直接返回媒体数据 URI)"
                 : "✗ direct-media 功能存在 " + stats.get("B").fail + " 个失败用例");

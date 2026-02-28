@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,19 +26,18 @@ public class BrowserTaskExecutorTest {
     private BrowserWorkerManager browserWorkerManager;
 
     @Test
-    public void shouldNormalizeProfileAndDelegateToWorkerManager() {
+    public void shouldDelegateDefaultModeWithoutProfileNormalization() {
         BrowserTaskExecutor executor = new BrowserTaskExecutor(
             profileIdValidator,
             browserWorkerManager
         );
 
-        when(profileIdValidator.normalizeProfileId("master")).thenReturn("master");
         when(browserWorkerManager.executeDefault(any())).thenReturn("ok");
 
-        String result = executor.execute("master", ProfileType.DEFAULT, context -> "ignored");
+        String result = executor.execute(ProfileType.DEFAULT, context -> "ignored");
 
         assertThat(result).isEqualTo("ok");
-        verify(profileIdValidator).normalizeProfileId("master");
+        verify(profileIdValidator, never()).normalizeProfileId(any());
         verify(browserWorkerManager).executeDefault(any());
     }
 

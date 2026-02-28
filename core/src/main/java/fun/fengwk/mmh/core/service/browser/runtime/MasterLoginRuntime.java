@@ -1,4 +1,4 @@
-package fun.fengwk.mmh.core.service.scrape.runtime;
+package fun.fengwk.mmh.core.service.browser.runtime;
 
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;

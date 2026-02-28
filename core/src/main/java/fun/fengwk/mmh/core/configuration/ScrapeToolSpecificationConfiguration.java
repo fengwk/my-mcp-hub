@@ -1,6 +1,7 @@
 package fun.fengwk.mmh.core.configuration;
 
 import fun.fengwk.convention4j.common.lang.StringUtils;
+import fun.fengwk.mmh.core.service.browser.runtime.ProfileType;
 import fun.fengwk.mmh.core.service.UtilMcpService;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -12,24 +13,29 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
- * 自定义 webfetch 的 MCP ToolSpecification，输出协议级 image/resource content。
+ * 自定义 scrape 的 MCP ToolSpecification，输出协议级 image/resource content。
  *
  * @author fengwk
  */
 @Slf4j
 @Configuration
 @ConditionalOnProperty(prefix = "spring.ai.mcp.server", name = "enabled", havingValue = "true", matchIfMissing = true)
-public class WebfetchToolSpecificationConfiguration {
+public class ScrapeToolSpecificationConfiguration {
+
+    private static final List<String> SUPPORTED_FORMATS = List.of("markdown", "links", "screenshot", "fullscreenshot");
+
+    private static final String SUPPORTED_FORMATS_HINT = String.join(", ", SUPPORTED_FORMATS);
 
     @Bean
-    public List<McpServerFeatures.SyncToolSpecification> webfetchToolSpecifications(UtilMcpService utilMcpService) {
+    public List<McpServerFeatures.SyncToolSpecification> scrapeToolSpecifications(UtilMcpService utilMcpService) {
         return List.of(
             McpServerFeatures.SyncToolSpecification.builder()
                 .tool(buildTool())
-                .callHandler((exchange, request) -> handleWebfetch(request, utilMcpService))
+                .callHandler((exchange, request) -> handleScrape(request, utilMcpService))
                 .build()
         );
     }
@@ -37,9 +43,21 @@ public class WebfetchToolSpecificationConfiguration {
     private static McpSchema.Tool buildTool() {
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("url", stringProperty("Target page URL. Must be a fully-qualified http/https URL."));
-        properties.put("format", stringProperty("Output format. Optional, default markdown. Allowed: markdown, html, links, screenshot, fullscreenshot."));
-        properties.put("profileMode", stringProperty("Browser profile mode. Optional, default default. Allowed: default, master."));
+
+        Map<String, Object> formatProperty = stringProperty("Output format. Optional, default markdown. Allowed: markdown, links, screenshot, fullscreenshot.");
+        formatProperty.put("enum", SUPPORTED_FORMATS);
+        properties.put("format", formatProperty);
+
+        Map<String, Object> profileModeProperty = stringProperty("Browser profile mode. Optional, default default. Allowed: default, master.");
+        profileModeProperty.put("enum", List.of("default", "master"));
+        properties.put("profileMode", profileModeProperty);
+
         properties.put("onlyMainContent", booleanProperty("Keep only main content for text outputs. Optional, default false."));
+
+        Map<String, Object> waitForProperty = integerProperty("Fixed wait in milliseconds after DOMContentLoaded. Optional. If > 0, skips smart wait. Range: 0-60000.");
+        waitForProperty.put("minimum", 0);
+        waitForProperty.put("maximum", 60000);
+        properties.put("waitFor", waitForProperty);
 
         McpSchema.JsonSchema inputSchema = new McpSchema.JsonSchema(
             "object",
@@ -51,15 +69,17 @@ public class WebfetchToolSpecificationConfiguration {
         );
 
         return McpSchema.Tool.builder()
-            .name("webfetch")
+            .name("scrape")
             .description("""
-                webfetch, Fetches content from a URL and returns text or protocol-level attachments.
+                scrape, Fetches content from a URL and returns text or protocol-level attachments.
                 Usage:
                 - Required input: url
-                - Optional input: format, profileMode, onlyMainContent
-                - format values: markdown (default), html, links, screenshot, fullscreenshot
+                - Optional input: format, profileMode, onlyMainContent, waitFor
+                - format values: markdown (default), links, screenshot, fullscreenshot
                 - Use onlyMainContent=true to focus on the main article/content area for text outputs
                 - profileMode values: default, master
+                - profileMode guidance: try default first; use master only for anti-bot/login-gated pages (master is serialized and slower)
+                - waitFor: fixed wait time in milliseconds after DOMContentLoaded, when > 0 smart wait is skipped
                 Output:
                 - Text: markdown with metadata header (format, elapsedMs) + body content; errors are in body
                 - Media/screenshot: protocol-level image/resource content
@@ -69,21 +89,63 @@ public class WebfetchToolSpecificationConfiguration {
             .build();
     }
 
-    private static McpSchema.CallToolResult handleWebfetch(McpSchema.CallToolRequest request, UtilMcpService utilMcpService) {
+    private static McpSchema.CallToolResult handleScrape(McpSchema.CallToolRequest request, UtilMcpService utilMcpService) {
         try {
             Map<String, Object> arguments = request.arguments() == null ? Map.of() : request.arguments();
-            String url = toString(arguments.get("url"));
+            Object urlRaw = arguments.get("url");
+            if (!isStringOrNull(urlRaw)) {
+                return errorResult("url must be a string", null, null);
+            }
+            String url = toString(urlRaw);
             if (StringUtils.isBlank(url)) {
                 return errorResult("url is blank", null, null);
             }
+            url = url.trim();
 
-            String format = toString(arguments.get("format"));
-            String profileMode = toString(arguments.get("profileMode"));
-            Boolean onlyMainContent = toBoolean(arguments.get("onlyMainContent"));
+            Object formatRaw = arguments.get("format");
+            if (!isStringOrNull(formatRaw)) {
+                return errorResult("format must be a string", null, null);
+            }
+            String format = normalizeOptionalString(toString(formatRaw));
+            if (format != null) {
+                String supportedFormat = resolveSupportedFormat(format);
+                if (supportedFormat == null) {
+                    return errorResult(buildUnsupportedFormatError(format), null, format);
+                }
+                format = supportedFormat;
+            }
 
-            ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, null, profileMode);
+            Object profileModeRaw = arguments.get("profileMode");
+            if (!isStringOrNull(profileModeRaw)) {
+                return errorResult("profileMode must be a string", null, format);
+            }
+            String profileMode = toString(profileModeRaw);
+
+            Object onlyMainContentRaw = arguments.get("onlyMainContent");
+            Boolean onlyMainContent = toBoolean(onlyMainContentRaw);
+            if (onlyMainContentRaw != null && onlyMainContent == null) {
+                return errorResult("onlyMainContent must be a boolean", null, format);
+            }
+            Object waitForRaw = arguments.get("waitFor");
+            Integer waitFor = toInteger(waitForRaw);
+            if (waitForRaw != null && waitFor == null) {
+                return errorResult("waitFor must be an integer", null, format);
+            }
+            if (!isSupportedHttpUrl(url)) {
+                return errorResult("unsupported url protocol", null, format);
+            }
+            if (waitFor != null && (waitFor < 0 || waitFor > 60000)) {
+                return errorResult("waitFor out of range", null, format);
+            }
+            try {
+                ProfileType.fromValue(profileMode);
+            } catch (IllegalArgumentException ex) {
+                return errorResult(ex.getMessage(), null, format);
+            }
+
+            ScrapeResponse response = utilMcpService.scrape(url, format, onlyMainContent, waitFor, profileMode);
             if (response == null) {
-                return errorResult("webfetch response is null", null, format);
+                return errorResult("scrape response is null", null, format);
             }
 
             if (!StringUtils.isBlank(response.getError())) {
@@ -113,7 +175,7 @@ public class WebfetchToolSpecificationConfiguration {
                 .isError(false)
                 .build();
         } catch (Exception ex) {
-            log.warn("webfetch tool call failed, error={}", ex.getMessage(), ex);
+            log.warn("scrape tool call failed, error={}", ex.getMessage(), ex);
             return errorResult(ex.getMessage(), null, null);
         }
     }
@@ -189,6 +251,30 @@ public class WebfetchToolSpecificationConfiguration {
         return String.valueOf(value);
     }
 
+    private static boolean isStringOrNull(Object value) {
+        return value == null || value instanceof String;
+    }
+
+    private static String normalizeOptionalString(String format) {
+        if (StringUtils.isBlank(format)) {
+            return null;
+        }
+        return format.trim();
+    }
+
+    private static String resolveSupportedFormat(String format) {
+        for (String supportedFormat : SUPPORTED_FORMATS) {
+            if (supportedFormat.equalsIgnoreCase(format)) {
+                return supportedFormat;
+            }
+        }
+        return null;
+    }
+
+    private static String buildUnsupportedFormatError(String format) {
+        return "unsupported format: " + format + ", supported formats: " + SUPPORTED_FORMATS_HINT;
+    }
+
     private static Boolean toBoolean(Object value) {
         if (value == null) {
             return null;
@@ -207,6 +293,48 @@ public class WebfetchToolSpecificationConfiguration {
         return null;
     }
 
+    private static Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer i) {
+            return i;
+        }
+        if (value instanceof Long l) {
+            if (l > Integer.MAX_VALUE || l < Integer.MIN_VALUE) {
+                return null;
+            }
+            return l.intValue();
+        }
+        if (value instanceof Number n) {
+            double doubleValue = n.doubleValue();
+            int intValue = n.intValue();
+            if (doubleValue != intValue) {
+                return null;
+            }
+            return intValue;
+        }
+        if (value instanceof String s) {
+            if (StringUtils.isBlank(s)) {
+                return null;
+            }
+            try {
+                return Integer.parseInt(s.trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isSupportedHttpUrl(String url) {
+        if (StringUtils.isBlank(url)) {
+            return false;
+        }
+        String normalized = url.trim().toLowerCase(Locale.ROOT);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
     private static Map<String, Object> stringProperty(String description) {
         Map<String, Object> property = new LinkedHashMap<>();
         property.put("type", "string");
@@ -217,6 +345,13 @@ public class WebfetchToolSpecificationConfiguration {
     private static Map<String, Object> booleanProperty(String description) {
         Map<String, Object> property = new LinkedHashMap<>();
         property.put("type", "boolean");
+        property.put("description", description);
+        return property;
+    }
+
+    private static Map<String, Object> integerProperty(String description) {
+        Map<String, Object> property = new LinkedHashMap<>();
+        property.put("type", "integer");
         property.put("description", description);
         return property;
     }

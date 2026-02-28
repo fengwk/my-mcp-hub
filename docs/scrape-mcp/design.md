@@ -4,7 +4,7 @@
 
 The `scrape` tool supports:
 
-1. Structured web page extraction (`markdown` / `html` / `links`).
+1. Structured web page extraction (`markdown` / `links`).
 2. Browser screenshot capture (`screenshot` / `fullscreenshot`).
 3. Direct media URL passthrough (image/video/audio/pdf/attachment) as data URI.
 4. Manual login command (`mmh-cli open-browser`) for the configured master profile.
@@ -47,10 +47,11 @@ No snapshot bootstrap/publish subsystem is used in current architecture.
 ## 3.1 Format Mapping
 
 - `markdown` -> markdown content
-- `html` -> cleaned html content
 - `links` -> extracted link list
 - `screenshot` -> PNG data URI
 - `fullscreenshot` -> full-page PNG data URI
+
+`html` is no longer exposed at MCP tool layer. Passing `format=html` returns a validation error with supported formats.
 
 ## 3.2 Direct Media URL Short-Circuit
 
@@ -73,21 +74,12 @@ Returned media payload:
 
 ## 3.3 MCP Result Template
 
-When response contains `screenshotBase64`, MCP result template emits a JSON payload with `attachments`:
+When response contains `screenshotBase64`, the MCP tool returns protocol-level content objects:
 
-```json
-{
-  "attachments": [
-    {
-      "type": "file",
-      "mime": "image/png",
-      "url": "data:image/png;base64,..."
-    }
-  ]
-}
-```
+- Image media (`image/*`) -> `McpSchema.ImageContent`
+- Non-image media -> `McpSchema.EmbeddedResource` with `McpSchema.BlobResourceContents`
 
-This is compatible with opencode parser expectations for image/media attachments.
+For text formats, the tool returns `McpSchema.TextContent` with metadata header + body content.
 
 ## 4. Configuration Ownership
 
@@ -124,14 +116,16 @@ Includes:
 - `navigate-timeout-ms`
 - `smart-wait-enabled`
 - `stability-check-interval-ms`
+- `stability-max-wait-ms`
 - `stability-threshold`
+- `stability-length-change-threshold`
 - `strip-chrome-tags`
 - `remove-base64-images`
 
 Notes:
 
-- MCP `scrape` tool does not expose a `waitFor` parameter to agents.
-- Runtime uses smart wait by default for stable content detection.
+- MCP `scrape` tool exposes optional `waitFor` (ms). When `waitFor > 0`, runtime uses fixed wait and skips smart wait.
+- Runtime uses smart wait by default: do a short `networkidle` best-effort first, then poll text length and stop when change ratio stays within threshold for consecutive rounds.
 
 ## 5. Module Layout
 

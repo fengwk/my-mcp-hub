@@ -16,9 +16,16 @@ public class BrowserTaskExecutor {
     private final ProfileIdValidator profileIdValidator;
     private final BrowserWorkerManager browserWorkerManager;
 
-    public <T> T execute(String profileId, ProfileType profileType, BrowserTask<T> task) {
-        String normalizedProfileId = profileIdValidator.normalizeProfileId(profileId);
+    public <T> T execute(ProfileType profileType, BrowserTask<T> task) {
         if (profileType == ProfileType.MASTER) {
+            return execute(null, profileType, task);
+        }
+        return browserWorkerManager.executeDefault(task);
+    }
+
+    public <T> T execute(String profileId, ProfileType profileType, BrowserTask<T> task) {
+        if (profileType == ProfileType.MASTER) {
+            String normalizedProfileId = profileIdValidator.normalizeProfileId(profileId);
             return browserWorkerManager.executeMaster(normalizedProfileId, task);
         }
         return browserWorkerManager.executeDefault(task);

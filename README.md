@@ -5,7 +5,7 @@
 ## 功能概览
 
 - `search`：网页搜索，返回标题、URL、摘要。
-- `scrape`：网页抓取，支持 `markdown/html/links/screenshot/fullscreenshot`。
+- `scrape`：网页抓取，支持 `markdown/links/screenshot/fullscreenshot`。
 - `create_temp_dir`：创建独占临时目录并返回绝对路径。
 
 ## 项目结构
@@ -94,13 +94,16 @@ scripts\mmh-cli.cmd open-browser
 
 - 参数：
   - `url`（必填，仅 `http/https`）
-  - `format`（可选，默认 `markdown`）
-  - `profileMode`（可选，`default/master`）
+  - `format`（可选，默认 `markdown`；支持 `markdown/links/screenshot/fullscreenshot`）
+  - `profileMode`（可选，`default/master`；优先 `default`，仅当默认模式因反爬或登录权限无法抓取时再用 `master`；`master` 为串行模式，速度更慢）
   - `onlyMainContent`（可选，默认 `false`）
-- 支持格式：`markdown/html/links/screenshot/fullscreenshot`
+  - `waitFor`（可选，单位毫秒；`>0` 时使用固定等待并跳过 smart wait）
 - 行为特性：
-  - 默认启用 smart wait（内容稳定检测）
+  - `format=html` 不再支持，会返回支持格式提示
+  - 默认启用 smart wait：先做 `networkidle` best-effort，再按文本长度变化率检测稳定
+  - 当 `waitFor > 0` 时使用固定等待并跳过 smart wait
   - 直链媒体 URL（图片/音视频/pdf/附件）直接返回媒体 data URI
+  - `onlyMainContent` 内置通用清理，并对 Wikipedia / Python Docs 做额外降噪
   - screenshot/fullscreenshot 返回图片 data URI
 
 ### 3) `create_temp_dir`
@@ -112,19 +115,22 @@ scripts\mmh-cli.cmd open-browser
 
 主配置文件：`cli/cli-all/src/main/resources/application.yml`
 
-重点配置项：
+重点配置项（按层次划分）：
 
-- MCP 服务器
+- MCP 服务层
   - `spring.ai.mcp.server.request-timeout`（默认 `45s`）
-- 浏览器池（并发容量）
+- Browser 运行时层（`mmh.browser.*`，负责 worker/profile/proxy）
   - `mmh.browser.worker-pool-max-size-per-process`（默认 `5`）
   - `mmh.browser.queue-offer-timeout-ms`（默认 `15000`）
-- 抓取策略
+  - `mmh.browser.master-profile-lock-timeout-ms`（默认 `2000`）
+- Scrape 业务层（`mmh.scrape.*`，负责导航/等待/内容提取）
   - `mmh.scrape.navigate-timeout-ms`（默认 `30000`）
+  - `mmh.scrape.direct-media-probe-timeout-ms`（默认 `10000`）
   - `mmh.scrape.smart-wait-enabled`（默认 `true`）
-  - `mmh.scrape.stability-check-interval-ms`（默认 `1000`）
+  - `mmh.scrape.stability-check-interval-ms`（默认 `500`）
   - `mmh.scrape.stability-max-wait-ms`（默认 `15000`）
-  - `mmh.scrape.stability-threshold`（默认 `2`）
+  - `mmh.scrape.stability-threshold`（默认 `3`）
+  - `mmh.scrape.stability-length-change-threshold`（默认 `0.1`，即 `10%`）
 
 ## 日志与清理策略
 

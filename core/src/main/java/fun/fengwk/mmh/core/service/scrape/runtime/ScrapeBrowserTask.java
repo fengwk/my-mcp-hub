@@ -3,6 +3,7 @@ package fun.fengwk.mmh.core.service.scrape.runtime;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.Frame;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Response;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.RequestOptions;
@@ -18,11 +19,12 @@ import fun.fengwk.mmh.core.service.scrape.parser.HtmlMainContentCleaner;
 import fun.fengwk.mmh.core.service.scrape.parser.LinkExtractor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownPostProcessor;
 import fun.fengwk.mmh.core.service.scrape.parser.MarkdownRenderer;
+import fun.fengwk.mmh.core.service.scrape.support.ScrapeHttpUtils;
+import fun.fengwk.mmh.core.service.scrape.support.ScrapeMediaUtils;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.jsoup.Jsoup;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -32,8 +34,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.zip.CRC32;
-import java.util.regex.Pattern;
 
 /**
  * Scrape task adapter over generic browser task runtime.
@@ -48,14 +48,6 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
 
     private static final String FORMAT_MEDIA = "media";
 
-    private static final Pattern UUID_PATTERN = Pattern.compile(
-        "(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b"
-    );
-
-    private static final Pattern LONG_NUMBER_PATTERN = Pattern.compile("\\b\\d{10,}\\b");
-
-    private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+");
-
     private final ScrapeRequest request;
     private final ScrapeFormat format;
     private final ScrapeProperties scrapeProperties;
@@ -67,37 +59,57 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
     @Override
     public ScrapeResponse execute(BrowserRuntimeContext context) {
         Page page = context.getPage();
+        String requestUrl = request.getUrl();
+        boolean mediaLikeUrl = ScrapeMediaUtils.hasMediaLikeFileExtension(requestUrl);
 
-        DirectMedia directMedia = tryFetchDirectMedia(page, request.getUrl());
+        DirectMedia directMedia = tryFetchDirectMedia(page, requestUrl);
+        if (directMedia == null && mediaLikeUrl) {
+            directMedia = tryFetchDirectMediaByHttp(requestUrl);
+        }
         if (directMedia != null) {
-            return ScrapeResponse.builder()
-                .statusCode(200)
-                .format(FORMAT_MEDIA)
-                .screenshotMime(directMedia.mime())
-                .screenshotBase64(directMedia.dataUri())
-                .build();
+            return toDirectMediaResponse(directMedia);
         }
 
-        page.navigate(request.getUrl(),
-            new Page.NavigateOptions()
-                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
-                .setTimeout((double) scrapeProperties.getNavigateTimeoutMs())
-        );
+        Response navigateResponse = null;
+        try {
+            navigateResponse = page.navigate(requestUrl,
+                new Page.NavigateOptions()
+                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                    .setTimeout((double) scrapeProperties.getNavigateTimeoutMs())
+            );
+        } catch (Exception ex) {
+            if (isLikelyDownloadNavigationError(ex)) {
+                DirectMedia fallbackDirectMedia = tryFetchDirectMediaByHttp(requestUrl);
+                if (fallbackDirectMedia != null) {
+                    return toDirectMediaResponse(fallbackDirectMedia);
+                }
+            }
+            if (isLikelyAbortedNavigationError(ex)) {
+                Integer statusCode = tryFetchHttpStatusByHttp(requestUrl);
+                if (isNoContentStatus(statusCode) && supportsEmptyTextResult(format)) {
+                    log.debug("return empty result for no-content response, url={}, statusCode={}, format={}", requestUrl, statusCode, format.getValue());
+                    return toEmptyTextResponse(format);
+                }
+            }
+            throw ex;
+        }
 
-        if (request.getWaitFor() != null && request.getWaitFor() > 0) {
+        if (shouldSkipPostNavigateWait(navigateResponse, requestUrl)) {
+            log.debug("skip post-navigate wait for error response, url={}", requestUrl);
+        } else if (request.getWaitFor() != null && request.getWaitFor() > 0) {
             page.waitForTimeout(request.getWaitFor());
         } else if (scrapeProperties.isSmartWaitEnabled()) {
-            waitForContentStable(page);
+            waitForContentStable(page, requestUrl);
         } else {
-            waitForNetworkIdleBestEffort(page);
+            waitForNetworkIdleBestEffort(page, requestUrl);
         }
 
         String html = page.content();
-        List<FrameDocument> frameDocuments = collectFrameDocuments(page);
+        List<FrameDocument> frameDocuments = collectFrameDocuments(page, requestUrl);
         boolean onlyMainContent = request.getOnlyMainContent() != null && request.getOnlyMainContent();
         String cleanedHtml = htmlMainContentCleaner.clean(
             html,
-            request.getUrl(),
+            requestUrl,
             onlyMainContent,
             scrapeProperties.isStripChromeTags(),
             scrapeProperties.isRemoveBase64Images()
@@ -105,13 +117,13 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         String fallbackHtml = onlyMainContent
             ? htmlMainContentCleaner.clean(
                 html,
-                request.getUrl(),
+                requestUrl,
                 false,
                 scrapeProperties.isStripChromeTags(),
                 scrapeProperties.isRemoveBase64Images()
             )
             : cleanedHtml;
-        List<FrameContent> frameContents = buildFrameContents(frameDocuments, onlyMainContent);
+        List<FrameContent> frameContents = buildFrameContents(frameDocuments, onlyMainContent, requestUrl);
 
         ScrapeResponse.ScrapeResponseBuilder builder = ScrapeResponse.builder()
             .statusCode(200)
@@ -122,11 +134,11 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
                 builder.content(mergeHtml(cleanedHtml, frameContents));
                 break;
             case MARKDOWN:
-                String markdown = renderMarkdownWithFallback(cleanedHtml, fallbackHtml, request.getUrl(), onlyMainContent);
+                String markdown = renderMarkdownWithFallback(cleanedHtml, fallbackHtml, requestUrl, onlyMainContent);
                 builder.content(mergeMarkdown(markdown, frameContents, onlyMainContent));
                 break;
             case LINKS:
-                builder.links(extractLinks(cleanedHtml, frameContents));
+                builder.links(extractLinks(cleanedHtml, frameContents, requestUrl));
                 break;
             case SCREENSHOT:
                 builder.screenshotMime(SCREENSHOT_MIME);
@@ -144,106 +156,157 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         return builder.build();
     }
 
-    private void waitForNetworkIdleBestEffort(Page page) {
+    private ScrapeResponse toDirectMediaResponse(DirectMedia directMedia) {
+        return ScrapeResponse.builder()
+            .statusCode(200)
+            .format(FORMAT_MEDIA)
+            .screenshotMime(directMedia.mime())
+            .screenshotBase64(directMedia.dataUri())
+            .build();
+    }
+
+    private boolean shouldSkipPostNavigateWait(Response navigateResponse, String requestUrl) {
+        if (navigateResponse == null) {
+            return false;
+        }
+        try {
+            return navigateResponse.status() >= 400;
+        } catch (Exception ex) {
+            log.debug("read navigate response status failed, url={}, error={}", requestUrl, ex.getMessage());
+            return false;
+        }
+    }
+
+    private void waitForNetworkIdleBestEffort(Page page, String requestUrl) {
+        waitForNetworkIdleBestEffort(page, scrapeProperties.getNavigateTimeoutMs(), true, requestUrl);
+    }
+
+    private void waitForNetworkIdleBestEffort(Page page, long timeoutMs, boolean warnOnTimeout, String requestUrl) {
+        long effectiveTimeoutMs = Math.max(100L, timeoutMs);
         try {
             // NETWORKIDLE may never happen for long-polling pages, treat it as best-effort.
             page.waitForLoadState(
                 LoadState.NETWORKIDLE,
-                new Page.WaitForLoadStateOptions().setTimeout((double) scrapeProperties.getNavigateTimeoutMs())
+                new Page.WaitForLoadStateOptions().setTimeout((double) effectiveTimeoutMs)
             );
         } catch (TimeoutError ex) {
-            log.warn("network idle timeout, url={}", request.getUrl());
+            if (warnOnTimeout) {
+                log.warn("network idle timeout, url={}, timeoutMs={}", requestUrl, effectiveTimeoutMs);
+            } else {
+                log.debug("pre smart-wait network idle timeout, url={}, timeoutMs={}", requestUrl, effectiveTimeoutMs);
+            }
         }
     }
 
-    private void waitForContentStable(Page page) {
+    private void waitForContentStable(Page page, String requestUrl) {
         int checkIntervalMs = Math.max(100, scrapeProperties.getStabilityCheckIntervalMs());
         int stableThreshold = Math.max(1, scrapeProperties.getStabilityThreshold());
+        double lengthChangeThreshold = resolveLengthChangeThreshold();
         long stabilityMaxWaitMs = Math.max(checkIntervalMs, scrapeProperties.getStabilityMaxWaitMs());
         long maxWaitMs = Math.max(checkIntervalMs, Math.min(scrapeProperties.getNavigateTimeoutMs(), stabilityMaxWaitMs));
+        long startedAt = System.currentTimeMillis();
+        long networkIdleTimeoutMs = Math.min(
+            maxWaitMs,
+            Math.max((long) checkIntervalMs * stableThreshold, 1500L)
+        );
+        waitForNetworkIdleBestEffort(page, networkIdleTimeoutMs, false, requestUrl);
 
-        long deadlineAt = System.currentTimeMillis() + maxWaitMs;
-        int exactStableRounds = 0;
-        int semanticStableRounds = 0;
-        int lastTextLength = -1;
-        long lastFingerprint = -1L;
-        long lastSemanticFingerprint = -1L;
+        long deadlineAt = startedAt + maxWaitMs;
+        int stableRounds = 0;
+        int unstableRounds = 0;
+        int anchorTextLength = calculateTotalTextLength(page, requestUrl);
 
         while (System.currentTimeMillis() < deadlineAt) {
-            StabilitySnapshot snapshot = calculateStabilitySnapshot(page);
-            if (snapshot.totalTextLength() > 0
-                && snapshot.totalTextLength() == lastTextLength
-                && snapshot.contentFingerprint() == lastFingerprint) {
-                exactStableRounds++;
-                if (exactStableRounds >= stableThreshold) {
-                    return;
-                }
-            } else {
-                exactStableRounds = 0;
-            }
+            page.waitForTimeout(checkIntervalMs);
 
-            if (snapshot.totalTextLength() > 0
-                && snapshot.semanticFingerprint() == lastSemanticFingerprint
-                && isMinorTextLengthChange(snapshot.totalTextLength(), lastTextLength)) {
-                semanticStableRounds++;
-                if (semanticStableRounds >= stableThreshold + 1) {
+            int currentTextLength = calculateTotalTextLength(page, requestUrl);
+            if (isLengthStable(anchorTextLength, currentTextLength, lengthChangeThreshold)) {
+                stableRounds++;
+                unstableRounds = 0;
+                anchorTextLength = currentTextLength;
+                if (stableRounds >= stableThreshold) {
                     log.debug(
-                        "smart wait settled by semantic stability, url={}, semanticStableRounds={}, stableThreshold={}",
-                        request.getUrl(),
-                        semanticStableRounds,
-                        stableThreshold
+                        "smart wait settled by text-length stability, url={}, stableRounds={}, stableThreshold={}, lengthChangeThreshold={}, anchorTextLength={}",
+                        requestUrl,
+                        stableRounds,
+                        stableThreshold,
+                        lengthChangeThreshold,
+                        anchorTextLength
                     );
                     return;
                 }
             } else {
-                semanticStableRounds = 0;
+                stableRounds = 0;
+                unstableRounds++;
+                if (unstableRounds >= stableThreshold) {
+                    anchorTextLength = currentTextLength;
+                    unstableRounds = 0;
+                    log.debug(
+                        "smart wait re-anchored after unstable rounds, url={}, stableThreshold={}, anchorTextLength={}",
+                        requestUrl,
+                        stableThreshold,
+                        anchorTextLength
+                    );
+                }
             }
-
-            lastTextLength = snapshot.totalTextLength();
-            lastFingerprint = snapshot.contentFingerprint();
-            lastSemanticFingerprint = snapshot.semanticFingerprint();
-            page.waitForTimeout(checkIntervalMs);
         }
 
         log.warn(
-            "smart wait timeout, url={}, maxWaitMs={}, stableThreshold={}, checkIntervalMs={}",
-            request.getUrl(),
+            "smart wait timeout, url={}, maxWaitMs={}, stableThreshold={}, checkIntervalMs={}, lengthChangeThreshold={}",
+            requestUrl,
             maxWaitMs,
             stableThreshold,
-            checkIntervalMs
+            checkIntervalMs,
+            lengthChangeThreshold
         );
     }
 
-    private StabilitySnapshot calculateStabilitySnapshot(Page page) {
-        CRC32 contentCrc32 = new CRC32();
-        CRC32 semanticCrc32 = new CRC32();
+    private double resolveLengthChangeThreshold() {
+        double threshold = scrapeProperties.getStabilityLengthChangeThreshold();
+        if (threshold > 1D) {
+            threshold = threshold / 100D;
+        }
+        if (threshold <= 0D) {
+            return 0.1D;
+        }
+        return Math.min(threshold, 1D);
+    }
+
+    private boolean isLengthStable(int previousLength, int currentLength, double lengthChangeThreshold) {
+        if (previousLength == 0 && currentLength == 0) {
+            return true;
+        }
+        if (previousLength <= 0 || currentLength <= 0) {
+            return false;
+        }
+        double lengthChangeRatio = Math.abs(currentLength - previousLength) / (double) previousLength;
+        return lengthChangeRatio <= lengthChangeThreshold;
+    }
+
+    private int calculateTotalTextLength(Page page, String requestUrl) {
         int totalLength = 0;
 
         String mainText = extractNormalizedText(page.content());
         if (StringUtils.isNotBlank(mainText)) {
             totalLength += mainText.length();
-            updateFingerprint(contentCrc32, "main");
-            updateFingerprint(contentCrc32, mainText);
-            updateFingerprint(semanticCrc32, "main");
-            updateFingerprint(semanticCrc32, normalizeDynamicSignals(mainText));
         }
 
         Frame mainFrame = null;
         try {
             mainFrame = page.mainFrame();
         } catch (Exception ex) {
-            log.debug("get main frame failed, url={}, error={}", request.getUrl(), ex.getMessage());
+            log.debug("get main frame failed, url={}, error={}", requestUrl, ex.getMessage());
         }
 
         List<Frame> frames;
         try {
             frames = page.frames();
         } catch (Exception ex) {
-            log.debug("list frames failed, url={}, error={}", request.getUrl(), ex.getMessage());
-            return new StabilitySnapshot(totalLength, contentCrc32.getValue(), semanticCrc32.getValue());
+            log.debug("list frames failed, url={}, error={}", requestUrl, ex.getMessage());
+            return totalLength;
         }
         if (frames == null || frames.isEmpty()) {
-            return new StabilitySnapshot(totalLength, contentCrc32.getValue(), semanticCrc32.getValue());
+            return totalLength;
         }
 
         for (Frame frame : frames) {
@@ -255,23 +318,9 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
                 continue;
             }
             totalLength += frameText.length();
-            updateFingerprint(contentCrc32, "frame");
-            updateFingerprint(contentCrc32, safeFrameUrl(frame));
-            updateFingerprint(contentCrc32, frameText);
-            updateFingerprint(semanticCrc32, "frame");
-            updateFingerprint(semanticCrc32, safeFrameUrl(frame));
-            updateFingerprint(semanticCrc32, normalizeDynamicSignals(frameText));
         }
 
-        return new StabilitySnapshot(totalLength, contentCrc32.getValue(), semanticCrc32.getValue());
-    }
-
-    private boolean isMinorTextLengthChange(int currentLength, int previousLength) {
-        if (currentLength <= 0 || previousLength <= 0) {
-            return false;
-        }
-        int tolerance = Math.max(8, previousLength / 100);
-        return Math.abs(currentLength - previousLength) <= tolerance;
+        return totalLength;
     }
 
     private String safeFrameText(Frame frame) {
@@ -297,28 +346,9 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         return text.replaceAll("\\s+", " ").trim();
     }
 
-    private void updateFingerprint(CRC32 crc32, String value) {
-        if (StringUtils.isBlank(value)) {
-            return;
-        }
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        crc32.update(bytes, 0, bytes.length);
-        crc32.update('\n');
-    }
-
-    private String normalizeDynamicSignals(String value) {
-        if (StringUtils.isBlank(value)) {
-            return "";
-        }
-
-        String normalized = UUID_PATTERN.matcher(value).replaceAll("<uuid>");
-        normalized = LONG_NUMBER_PATTERN.matcher(normalized).replaceAll("<long-number>");
-        return NUMBER_PATTERN.matcher(normalized).replaceAll("#");
-    }
-
-    private List<FrameDocument> collectFrameDocuments(Page page) {
-        Frame mainFrame = safeMainFrame(page);
-        List<Frame> frames = safeFrames(page);
+    private List<FrameDocument> collectFrameDocuments(Page page, String requestUrl) {
+        Frame mainFrame = safeMainFrame(page, requestUrl);
+        List<Frame> frames = safeFrames(page, requestUrl);
         if (frames == null || frames.isEmpty()) {
             return List.of();
         }
@@ -372,21 +402,21 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         return orderFrameDocuments(frameDocuments);
     }
 
-    private Frame safeMainFrame(Page page) {
+    private Frame safeMainFrame(Page page, String requestUrl) {
         try {
             return page.mainFrame();
         } catch (Exception ex) {
-            log.debug("get main frame failed when collect frame content, url={}, error={}", request.getUrl(), ex.getMessage());
+            log.debug("get main frame failed when collect frame content, url={}, error={}", requestUrl, ex.getMessage());
             return null;
         }
     }
 
-    private List<Frame> safeFrames(Page page) {
+    private List<Frame> safeFrames(Page page, String requestUrl) {
         try {
             List<Frame> frames = page.frames();
             return frames == null ? List.of() : frames;
         } catch (Exception ex) {
-            log.debug("list frames failed when collect frame content, url={}, error={}", request.getUrl(), ex.getMessage());
+            log.debug("list frames failed when collect frame content, url={}, error={}", requestUrl, ex.getMessage());
             return List.of();
         }
     }
@@ -489,14 +519,14 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         }
     }
 
-    private List<FrameContent> buildFrameContents(List<FrameDocument> frameDocuments, boolean onlyMainContent) {
+    private List<FrameContent> buildFrameContents(List<FrameDocument> frameDocuments, boolean onlyMainContent, String requestUrl) {
         if (frameDocuments == null || frameDocuments.isEmpty()) {
             return List.of();
         }
 
         List<FrameContent> frameContents = new ArrayList<>(frameDocuments.size());
         for (FrameDocument frameDocument : frameDocuments) {
-            String frameUrl = StringUtils.isBlank(frameDocument.url()) ? request.getUrl() : frameDocument.url();
+            String frameUrl = StringUtils.isBlank(frameDocument.url()) ? requestUrl : frameDocument.url();
             String cleanedHtml = htmlMainContentCleaner.clean(
                 frameDocument.html(),
                 frameUrl,
@@ -519,8 +549,7 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
                 frameUrl,
                 cleanedHtml,
                 fallbackHtml,
-                frameDocument.depth(),
-                frameDocument.order()
+                frameDocument.depth()
             ));
         }
         return frameContents;
@@ -537,7 +566,7 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
             if (StringUtils.isBlank(frameHtml)) {
                 continue;
             }
-            String frameUrl = normalizeFrameTitle(frameContent.url());
+            String frameUrl = resolveFrameDisplayTitle(frameContent.url());
             if (merged.length() > 0) {
                 merged.append("\n");
             }
@@ -765,9 +794,9 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         return StringUtils.isBlank(frameUrl) ? "unknown" : frameUrl;
     }
 
-    private List<String> extractLinks(String cleanedMainHtml, List<FrameContent> frameContents) {
+    private List<String> extractLinks(String cleanedMainHtml, List<FrameContent> frameContents, String requestUrl) {
         Set<String> deduplicatedLinks = new LinkedHashSet<>();
-        List<String> mainLinks = linkExtractor.extract(cleanedMainHtml, request.getUrl());
+        List<String> mainLinks = linkExtractor.extract(cleanedMainHtml, requestUrl);
         if (mainLinks != null && !mainLinks.isEmpty()) {
             deduplicatedLinks.addAll(mainLinks);
         }
@@ -801,10 +830,6 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
             return frameContent.cleanedHtml();
         }
         return frameContent.fallbackHtml();
-    }
-
-    private String normalizeFrameTitle(String frameUrl) {
-        return StringUtils.isBlank(frameUrl) ? "unknown" : frameUrl;
     }
 
     private String escapeHtmlAttribute(String value) {
@@ -845,9 +870,9 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
             }
 
             Map<String, String> headers = response.headers();
-            String mime = resolveMime(headers);
-            String contentDisposition = findHeader(headers, "content-disposition");
-            if (!isDirectMediaResponse(mime, contentDisposition, url)) {
+            String mime = ScrapeMediaUtils.resolveMime(headers);
+            String contentDisposition = ScrapeMediaUtils.findHeader(headers, "content-disposition");
+            if (!ScrapeMediaUtils.isDirectMediaResponse(mime, contentDisposition, url)) {
                 return null;
             }
 
@@ -871,74 +896,81 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         }
     }
 
-    private String resolveMime(Map<String, String> headers) {
-        String contentType = findHeader(headers, "content-type");
-        if (StringUtils.isBlank(contentType)) {
-            return "application/octet-stream";
-        }
-        String normalized = contentType.trim().toLowerCase(Locale.ROOT);
-        int semicolonIndex = normalized.indexOf(';');
-        if (semicolonIndex >= 0) {
-            normalized = normalized.substring(0, semicolonIndex).trim();
-        }
-        return StringUtils.isBlank(normalized) ? "application/octet-stream" : normalized;
-    }
-
-    private String findHeader(Map<String, String> headers, String name) {
-        if (headers == null || headers.isEmpty()) {
-            return "";
-        }
-        for (Map.Entry<String, String> entry : headers.entrySet()) {
-            if (name.equalsIgnoreCase(entry.getKey())) {
-                return entry.getValue() == null ? "" : entry.getValue();
-            }
-        }
-        return "";
-    }
-
-    private boolean isDirectMediaResponse(String mime, String contentDisposition, String url) {
-        if (StringUtils.isNotBlank(contentDisposition)
-            && contentDisposition.toLowerCase(Locale.ROOT).contains("attachment")) {
-            return true;
-        }
-        if ("application/octet-stream".equals(mime)) {
-            return hasMediaLikeFileExtension(url);
-        }
-        return mime.startsWith("image/")
-            || mime.startsWith("video/")
-            || mime.startsWith("audio/")
-            || "application/pdf".equals(mime);
-    }
-
-    private boolean hasMediaLikeFileExtension(String url) {
-        if (StringUtils.isBlank(url)) {
+    private boolean isLikelyDownloadNavigationError(Exception ex) {
+        if (ex == null || StringUtils.isBlank(ex.getMessage())) {
             return false;
         }
-        String lowerUrl = url.toLowerCase(Locale.ROOT);
-        int fragmentIndex = lowerUrl.indexOf('#');
-        if (fragmentIndex >= 0) {
-            lowerUrl = lowerUrl.substring(0, fragmentIndex);
+        String message = ex.getMessage().toLowerCase(Locale.ROOT);
+        return message.contains("download is starting") || message.contains("net::err_aborted");
+    }
+
+    private boolean isLikelyAbortedNavigationError(Exception ex) {
+        if (ex == null || StringUtils.isBlank(ex.getMessage())) {
+            return false;
         }
-        int queryIndex = lowerUrl.indexOf('?');
-        if (queryIndex >= 0) {
-            lowerUrl = lowerUrl.substring(0, queryIndex);
+        return ex.getMessage().toLowerCase(Locale.ROOT).contains("net::err_aborted");
+    }
+
+    private Integer tryFetchHttpStatusByHttp(String url) {
+        return ScrapeHttpUtils.tryFetchStatusCodeWithRetry(url, scrapeProperties.getDirectMediaProbeTimeoutMs());
+    }
+
+    private boolean isNoContentStatus(Integer statusCode) {
+        if (statusCode == null) {
+            return false;
         }
-        return lowerUrl.endsWith(".png")
-            || lowerUrl.endsWith(".jpg")
-            || lowerUrl.endsWith(".jpeg")
-            || lowerUrl.endsWith(".webp")
-            || lowerUrl.endsWith(".gif")
-            || lowerUrl.endsWith(".bmp")
-            || lowerUrl.endsWith(".svg")
-            || lowerUrl.endsWith(".mp4")
-            || lowerUrl.endsWith(".mov")
-            || lowerUrl.endsWith(".mkv")
-            || lowerUrl.endsWith(".webm")
-            || lowerUrl.endsWith(".mp3")
-            || lowerUrl.endsWith(".wav")
-            || lowerUrl.endsWith(".flac")
-            || lowerUrl.endsWith(".m4a")
-            || lowerUrl.endsWith(".pdf");
+        return statusCode == 204 || statusCode == 205 || statusCode == 304;
+    }
+
+    private boolean supportsEmptyTextResult(ScrapeFormat scrapeFormat) {
+        return scrapeFormat == ScrapeFormat.HTML
+            || scrapeFormat == ScrapeFormat.MARKDOWN
+            || scrapeFormat == ScrapeFormat.LINKS;
+    }
+
+    private ScrapeResponse toEmptyTextResponse(ScrapeFormat scrapeFormat) {
+        ScrapeResponse.ScrapeResponseBuilder builder = ScrapeResponse.builder()
+            .statusCode(200)
+            .format(scrapeFormat.getValue());
+        if (scrapeFormat == ScrapeFormat.LINKS) {
+            builder.links(List.of());
+        } else {
+            builder.content("");
+        }
+        return builder.build();
+    }
+
+    private DirectMedia tryFetchDirectMediaByHttp(String url) {
+        ScrapeHttpUtils.HttpBytesResponse response = ScrapeHttpUtils.tryFetchBytesWithRetry(
+            url,
+            scrapeProperties.getDirectMediaProbeTimeoutMs()
+        );
+        if (response == null) {
+            return null;
+        }
+
+        try {
+            int statusCode = response.statusCode();
+            if (statusCode < 200 || statusCode >= 300) {
+                return null;
+            }
+
+            String mime = ScrapeMediaUtils.resolveMime(response.headers());
+            String contentDisposition = ScrapeMediaUtils.findHeader(response.headers(), "content-disposition");
+            if (!ScrapeMediaUtils.isDirectMediaResponse(mime, contentDisposition, url)) {
+                return null;
+            }
+
+            byte[] body = response.body();
+            if (body == null || body.length == 0) {
+                return null;
+            }
+
+            return new DirectMedia(mime, toDataUri(mime, body));
+        } catch (Exception ex) {
+            log.debug("fallback direct media fetch failed, url={}, error={}", url, ex.getMessage());
+            return null;
+        }
     }
 
     private record FrameDocument(
@@ -958,13 +990,8 @@ public class ScrapeBrowserTask implements BrowserTask<ScrapeResponse> {
         String url,
         String cleanedHtml,
         String fallbackHtml,
-        int depth,
-        int order
+        int depth
     ) {
-
-    }
-
-    private record StabilitySnapshot(int totalTextLength, long contentFingerprint, long semanticFingerprint) {
 
     }
 
