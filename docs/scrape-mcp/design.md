@@ -36,7 +36,9 @@ This document describes the **current implementation** and is the source of trut
 - Flow:
   1. Resolve `profileId` from `mmh.browser.default-profile-id`.
   2. Acquire `browser.lock`.
-  3. Launch headed persistent context for master profile.
+  3. Launch persistent context for master profile with `setHeadless(false)` and merged args:
+     - `mmh.browser.master-profile.launch-args`
+     - `mmh.browser.master-login-args`
   4. Wait until user closes browser pages/context or timeout.
   5. Exit process.
 
@@ -94,7 +96,6 @@ Includes:
   - `worker-pool-min-size-per-process`
   - `worker-pool-max-size-per-process`
   - `queue-offer-timeout-ms`
-  - `slave-headless`
 - Master login command behavior:
   - `master-login-args`
   - `master-login-initial-page-url`
@@ -103,10 +104,12 @@ Includes:
   - `master-login-timeout-ms`
   - `master-profile-lock-timeout-ms`
 - Browser launch/session tuning:
-  - `browser-channel`, `executable-path`, `launch-args`
-  - `ignore-default-args`, `ignore-all-default-args`
-  - `user-agent`, `user-agents`, `accept-language`, `locale`, `timezone-id`
-  - `extra-headers`, `proxy-*`
+  - `default-profile.*` 与 `master-profile.*`
+  - profile 维度字段：
+    - `browser-channel`, `executable-path`, `launch-args`
+    - `ignore-default-args`, `ignore-all-default-args`, `headless`
+    - `user-agent`, `user-agents`, `accept-language`, `locale`, `timezone-id`
+    - `extra-headers`, `proxy-*`
   - `stealth-enabled`, `stealth-script`
 
 ## 4.2 `mmh.scrape` (content extraction domain)
@@ -126,6 +129,17 @@ Notes:
 
 - MCP `scrape` tool exposes optional `waitFor` (ms). When `waitFor > 0`, runtime uses fixed wait and skips smart wait.
 - Runtime uses smart wait by default: do a short `networkidle` best-effort first, then poll text length and stop when change ratio stays within threshold for consecutive rounds.
+
+## 4.3 Configuration Precedence and Argument Handling
+
+- Configuration precedence follows Spring Boot standard externalized configuration order
+  (command-line args > environment variables > config files).
+- Runtime does not parse chromium flags in `launch-args` to implement custom override logic.
+  It passes both:
+  - typed Playwright options from profile configuration
+  - raw chromium `launch-args`
+  to Playwright together.
+- When typed options and chromium args conflict, effective behavior is determined by Playwright/Chromium runtime.
 
 ## 5. Module Layout
 

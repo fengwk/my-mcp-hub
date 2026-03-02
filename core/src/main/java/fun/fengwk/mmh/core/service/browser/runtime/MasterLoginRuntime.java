@@ -7,6 +7,7 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.WaitUntilState;
 import fun.fengwk.convention4j.common.lang.StringUtils;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
+import fun.fengwk.mmh.core.service.browser.BrowserProperties.BrowserProfileProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserStealthSupport;
 import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
 import lombok.extern.slf4j.Slf4j;
@@ -17,10 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Runtime for manual headed login session.
@@ -65,23 +63,14 @@ public class MasterLoginRuntime {
         try {
             Path userDataDir = resolveUserDataDir(profileId);
             playwright = playwrightFactory.create();
-            BrowserType.LaunchPersistentContextOptions options = buildContextOptions();
-            if (browserProperties.isIgnoreAllDefaultArgs()) {
-                options.setIgnoreAllDefaultArgs(true);
-            } else if (browserProperties.getIgnoreDefaultArgs() != null
-                && !browserProperties.getIgnoreDefaultArgs().isEmpty()) {
-                options.setIgnoreDefaultArgs(browserProperties.getIgnoreDefaultArgs());
-            }
-            List<String> launchArgs = buildMasterLoginLaunchArgs();
-            if (!launchArgs.isEmpty()) {
-                options.setArgs(launchArgs);
-            }
-            if (StringUtils.isNotBlank(browserProperties.getBrowserChannel())) {
-                options.setChannel(browserProperties.getBrowserChannel());
-            }
-            if (StringUtils.isNotBlank(browserProperties.getExecutablePath())) {
-                options.setExecutablePath(Paths.get(browserProperties.getExecutablePath()));
-            }
+            BrowserProfileProperties profileProperties = browserProperties.resolveMasterProfile();
+            List<String> launchArgs = buildMasterLoginLaunchArgs(profileProperties);
+            BrowserType.LaunchPersistentContextOptions options = BrowserContextOptionsSupport.buildContextOptions(
+                profileProperties,
+                false,
+                launchArgs,
+                true
+            );
             BrowserContext context = playwright.chromium().launchPersistentContext(userDataDir, options);
             BrowserStealthSupport.apply(context, browserProperties);
             openInitialPageIfNeeded(context);
@@ -99,13 +88,10 @@ public class MasterLoginRuntime {
         }
     }
 
-    private List<String> buildMasterLoginLaunchArgs() {
-        List<String> args = new ArrayList<>();
-        if (browserProperties.getLaunchArgs() != null && !browserProperties.getLaunchArgs().isEmpty()) {
-            args.addAll(browserProperties.getLaunchArgs());
-        }
+    private List<String> buildMasterLoginLaunchArgs(BrowserProfileProperties profileProperties) {
+        List<String> args = new ArrayList<>(BrowserContextOptionsSupport.normalizeLaunchArgs(profileProperties.getLaunchArgs()));
         if (browserProperties.getMasterLoginArgs() != null && !browserProperties.getMasterLoginArgs().isEmpty()) {
-            args.addAll(browserProperties.getMasterLoginArgs());
+            args.addAll(BrowserContextOptionsSupport.normalizeLaunchArgs(browserProperties.getMasterLoginArgs()));
         }
 
         addIfAbsent(args, DISABLE_BACKGROUND_MODE_ARG);
@@ -180,64 +166,6 @@ public class MasterLoginRuntime {
         }
         return context.newPage();
     }
-
-    private BrowserType.LaunchPersistentContextOptions buildContextOptions() {
-        BrowserType.LaunchPersistentContextOptions options = new BrowserType.LaunchPersistentContextOptions()
-            .setHeadless(false)
-            .setViewportSize(null);
-
-        String userAgent = resolveUserAgent();
-        if (StringUtils.isNotBlank(userAgent)) {
-            options.setUserAgent(userAgent);
-        }
-        if (StringUtils.isNotBlank(browserProperties.getLocale())) {
-            options.setLocale(browserProperties.getLocale());
-        }
-        if (StringUtils.isNotBlank(browserProperties.getTimezoneId())) {
-            options.setTimezoneId(browserProperties.getTimezoneId());
-        }
-
-        Map<String, String> headers = new HashMap<>();
-        if (browserProperties.getExtraHeaders() != null) {
-            browserProperties.getExtraHeaders().forEach((key, value) -> {
-                if (StringUtils.isNotBlank(key) && StringUtils.isNotBlank(value)) {
-                    headers.put(key, value);
-                }
-            });
-        }
-        if (StringUtils.isNotBlank(browserProperties.getAcceptLanguage())) {
-            headers.putIfAbsent("Accept-Language", browserProperties.getAcceptLanguage());
-        }
-        if (!headers.isEmpty()) {
-            options.setExtraHTTPHeaders(headers);
-        }
-
-        if (StringUtils.isNotBlank(browserProperties.getProxyServer())) {
-            com.microsoft.playwright.options.Proxy proxy =
-                new com.microsoft.playwright.options.Proxy(browserProperties.getProxyServer());
-            if (StringUtils.isNotBlank(browserProperties.getProxyUsername())) {
-                proxy.setUsername(browserProperties.getProxyUsername());
-            }
-            if (StringUtils.isNotBlank(browserProperties.getProxyPassword())) {
-                proxy.setPassword(browserProperties.getProxyPassword());
-            }
-            options.setProxy(proxy);
-        }
-
-        return options;
-    }
-
-    private String resolveUserAgent() {
-        if (StringUtils.isNotBlank(browserProperties.getUserAgent())) {
-            return browserProperties.getUserAgent();
-        }
-        List<String> pool = browserProperties.getUserAgents();
-        if (pool == null || pool.isEmpty()) {
-            return "";
-        }
-        return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
-    }
-
 
     private void sleep(long millis) {
         if (millis <= 0) {

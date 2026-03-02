@@ -95,7 +95,7 @@ scripts\mmh-cli.cmd open-browser
 - 参数：
   - `url`（必填，仅 `http/https`）
   - `format`（可选，默认 `markdown`；支持 `markdown/links/screenshot/fullscreenshot`）
-  - `profileMode`（可选，`default/master`；优先 `default`，仅当默认模式因反爬或登录权限无法抓取时再用 `master`；`master` 为串行模式，速度更慢）
+  - `profileMode`（可选，`default/master`；`default` 使用 `mmh.browser.default-profile.*`，`master` 使用 `mmh.browser.master-profile.*`；`master` 为串行模式，速度更慢）
   - `onlyMainContent`（可选，默认 `false`）
   - `waitFor`（可选，单位毫秒；`>0` 时使用固定等待并跳过 smart wait）
 - 行为特性：
@@ -120,9 +120,29 @@ scripts\mmh-cli.cmd open-browser
 - MCP 服务层
   - `spring.ai.mcp.server.request-timeout`（默认 `45s`）
 - Browser 运行时层（`mmh.browser.*`，负责 worker/profile/proxy）
-  - `mmh.browser.worker-pool-max-size-per-process`（默认 `5`）
-  - `mmh.browser.queue-offer-timeout-ms`（默认 `15000`）
-  - `mmh.browser.master-profile-lock-timeout-ms`（默认 `2000`）
+  - Profile 维度参数（仅新结构）：
+    - `mmh.browser.default-profile.*`
+    - `mmh.browser.master-profile.*`
+  - profile 下常用字段：
+    - `headless`
+    - `launch-args`
+    - `ignore-default-args` / `ignore-all-default-args`
+    - `browser-channel` / `executable-path`
+    - `user-agent` / `user-agents`
+    - `accept-language` / `locale` / `timezone-id`
+    - `extra-headers` / `proxy-server` / `proxy-username` / `proxy-password`
+  - 运行时公共参数：
+    - `mmh.browser.worker-pool-max-size-per-process`（默认 `5`）
+    - `mmh.browser.queue-offer-timeout-ms`（默认 `15000`）
+    - `mmh.browser.master-profile-lock-timeout-ms`（默认 `2000`）
+    - `mmh.browser.default-profile-id`（默认 `master`）
+    - `mmh.browser.master-user-data-root`
+  - 手动登录命令参数：
+    - `mmh.browser.master-login-args`
+    - `mmh.browser.master-login-initial-page-url`
+    - `mmh.browser.master-login-navigate-timeout-ms`
+    - `mmh.browser.master-login-refresh-interval-ms`
+    - `mmh.browser.master-login-timeout-ms`
 - Scrape 业务层（`mmh.scrape.*`，负责导航/等待/内容提取）
   - `mmh.scrape.navigate-timeout-ms`（默认 `30000`）
   - `mmh.scrape.direct-media-probe-timeout-ms`（默认 `10000`）
@@ -131,6 +151,17 @@ scripts\mmh-cli.cmd open-browser
   - `mmh.scrape.stability-max-wait-ms`（默认 `15000`）
   - `mmh.scrape.stability-threshold`（默认 `3`）
   - `mmh.scrape.stability-length-change-threshold`（默认 `0.1`，即 `10%`）
+
+配置优先级遵循 Spring Boot 标准规则（命令行参数 > 环境变量 > 配置文件）。
+
+示例（命令行覆盖）：
+
+```bash
+./scripts/mmh-cli all \
+  --mmh.browser.default-profile.headless=true \
+  --mmh.browser.default-profile.launch-args[0]=--disable-gpu \
+  --mmh.browser.master-profile.headless=false
+```
 
 ## 日志与清理策略
 

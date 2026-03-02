@@ -19,6 +19,14 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "mmh.browser")
 public class BrowserProperties {
 
+    private static final List<String> DEFAULT_USER_AGENTS = List.of(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    );
+
     /**
      * Min worker count per MCP process.
      */
@@ -55,6 +63,16 @@ public class BrowserProperties {
     private List<String> masterLoginArgs = new ArrayList<>();
 
     /**
+     * Browser launch settings for default profile mode.
+     */
+    private BrowserProfileProperties defaultProfile = new BrowserProfileProperties();
+
+    /**
+     * Browser launch settings for master profile mode.
+     */
+    private BrowserProfileProperties masterProfile = new BrowserProfileProperties();
+
+    /**
      * Initial page url for manual master login.
      */
     private String masterLoginInitialPageUrl = "";
@@ -80,87 +98,6 @@ public class BrowserProperties {
     private long masterProfileLockTimeoutMs = 2000;
 
     /**
-     * Optional fixed user agent for browser context.
-     */
-    private String userAgent = "";
-
-    /**
-     * User agent pool for random rotation.
-     */
-    private List<String> userAgents = List.of(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    );
-
-    /**
-     * Optional Accept-Language header value.
-     */
-    private String acceptLanguage = "";
-
-    /**
-     * Optional locale for browser context.
-     */
-    private String locale = "";
-
-    /**
-     * Optional timezone id for browser context.
-     */
-    private String timezoneId = "";
-
-    /**
-     * Extra headers for browser context.
-     */
-    private Map<String, String> extraHeaders = Map.of();
-
-    /**
-     * Proxy server, for example http://proxy:8080.
-     */
-    private String proxyServer = "";
-
-    /**
-     * Proxy username.
-     */
-    private String proxyUsername = "";
-
-    /**
-     * Proxy password.
-     */
-    private String proxyPassword = "";
-
-    /**
-     * Browser channel, e.g. chrome, msedge.
-     */
-    private String browserChannel = "";
-
-    /**
-     * Browser executable path.
-     */
-    private String executablePath = "";
-
-    /**
-     * Extra launch args for browser.
-     */
-    private List<String> launchArgs = List.of();
-
-    /**
-     * Ignore default args for browser launch.
-     */
-    private List<String> ignoreDefaultArgs = List.of("--enable-automation");
-
-    /**
-     * Ignore all default args for browser launch.
-     */
-    private boolean ignoreAllDefaultArgs = false;
-
-    /**
-     * Whether default/slave MCP workers run in headless mode.
-     */
-    private boolean slaveHeadless = true;
-
-    /**
      * Whether to enable stealth script.
      */
     private boolean stealthEnabled = true;
@@ -178,6 +115,100 @@ public class BrowserProperties {
             return stealthScript;
         }
         return BrowserStealthSupport.DEFAULT_STEALTH_SCRIPT;
+    }
+
+    public BrowserProfileProperties resolveDefaultProfile() {
+        if (defaultProfile == null) {
+            defaultProfile = new BrowserProfileProperties();
+        }
+        return defaultProfile;
+    }
+
+    public BrowserProfileProperties resolveMasterProfile() {
+        if (masterProfile == null) {
+            masterProfile = new BrowserProfileProperties();
+        }
+        return masterProfile;
+    }
+
+    @Data
+    public static class BrowserProfileProperties {
+
+        /**
+         * Browser channel, e.g. chrome, msedge.
+         */
+        private String browserChannel = "";
+
+        /**
+         * Browser executable path.
+         */
+        private String executablePath = "";
+
+        /**
+         * Extra launch args for browser.
+         */
+        private List<String> launchArgs = List.of();
+
+        /**
+         * Ignore default args for browser launch.
+         */
+        private List<String> ignoreDefaultArgs = List.of("--enable-automation");
+
+        /**
+         * Ignore all default args for browser launch.
+         */
+        private boolean ignoreAllDefaultArgs = false;
+
+        /**
+         * Whether this profile runs in headless mode.
+         */
+        private boolean headless = true;
+
+        /**
+         * Optional fixed user agent for browser context.
+         */
+        private String userAgent = "";
+
+        /**
+         * User agent pool for random rotation.
+         */
+        private List<String> userAgents = DEFAULT_USER_AGENTS;
+
+        /**
+         * Optional Accept-Language header value.
+         */
+        private String acceptLanguage = "";
+
+        /**
+         * Optional locale for browser context.
+         */
+        private String locale = "";
+
+        /**
+         * Optional timezone id for browser context.
+         */
+        private String timezoneId = "";
+
+        /**
+         * Extra headers for browser context.
+         */
+        private Map<String, String> extraHeaders = Map.of();
+
+        /**
+         * Proxy server, for example http://proxy:8080.
+         */
+        private String proxyServer = "";
+
+        /**
+         * Proxy username.
+         */
+        private String proxyUsername = "";
+
+        /**
+         * Proxy password.
+         */
+        private String proxyPassword = "";
+
     }
 
 }

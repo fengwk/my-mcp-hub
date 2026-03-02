@@ -63,6 +63,11 @@ public class MasterBrowserWorkerPool extends BrowserWorkerPool {
     }
 
     @Override
+    protected BrowserProperties.BrowserProfileProperties resolveProfileProperties() {
+        return browserProperties.resolveMasterProfile();
+    }
+
+    @Override
     protected boolean shouldRetainWorkerAfterTask(BrowserWorker worker) {
         // Release lock immediately after each master task so manual login can start.
         return false;

@@ -69,8 +69,8 @@ public class DefaultBrowserWorkerPool extends BrowserWorkerPool {
     }
 
     @Override
-    protected boolean resolveHeadlessMode() {
-        return browserProperties.isSlaveHeadless();
+    protected BrowserProperties.BrowserProfileProperties resolveProfileProperties() {
+        return browserProperties.resolveDefaultProfile();
     }
 
     private void cleanupZombieSlaveProfiles() {

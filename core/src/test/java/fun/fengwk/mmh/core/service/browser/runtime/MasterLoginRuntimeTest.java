@@ -71,15 +71,16 @@ public class MasterLoginRuntimeTest {
     public void shouldApplyLoginArgsAndInitialPage() {
         BrowserProperties browserProperties = new BrowserProperties();
         Path chromePath = tempDir.resolve("chrome-bin");
-        browserProperties.setUserAgent("UA");
-        browserProperties.setAcceptLanguage("zh-CN,zh;q=0.9");
-        browserProperties.setLocale("zh-CN");
-        browserProperties.setTimezoneId("Asia/Shanghai");
-        browserProperties.setExtraHeaders(Map.of("Sec-Fetch-Mode", "navigate"));
-        browserProperties.setLaunchArgs(List.of("--disable-blink-features=AutomationControlled"));
-        browserProperties.setBrowserChannel("chrome");
-        browserProperties.setExecutablePath(chromePath.toString());
-        browserProperties.setIgnoreDefaultArgs(List.of("--enable-automation"));
+        BrowserProperties.BrowserProfileProperties masterProfile = browserProperties.resolveMasterProfile();
+        masterProfile.setUserAgent("UA");
+        masterProfile.setAcceptLanguage("zh-CN,zh;q=0.9");
+        masterProfile.setLocale("zh-CN");
+        masterProfile.setTimezoneId("Asia/Shanghai");
+        masterProfile.setExtraHeaders(Map.of("Sec-Fetch-Mode", "navigate"));
+        masterProfile.setLaunchArgs(List.of("--disable-blink-features=AutomationControlled"));
+        masterProfile.setBrowserChannel("chrome");
+        masterProfile.setExecutablePath(chromePath.toString());
+        masterProfile.setIgnoreDefaultArgs(List.of("--enable-automation"));
         browserProperties.setDefaultProfileId("master");
         browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         browserProperties.setMasterLoginArgs(List.of("--force-device-scale-factor=2"));
@@ -116,6 +117,45 @@ public class MasterLoginRuntimeTest {
         assertThat(options.channel).isEqualTo("chrome");
         assertThat(options.executablePath).isEqualTo(chromePath);
         assertThat(options.ignoreDefaultArgs).contains("--enable-automation");
+    }
+
+    @Test
+    public void shouldKeepTypedSettingsWhenLaunchArgsContainConflictingFlags() {
+        BrowserProperties browserProperties = new BrowserProperties();
+        BrowserProperties.BrowserProfileProperties masterProfile = browserProperties.resolveMasterProfile();
+        masterProfile.setHeadless(false);
+        masterProfile.setUserAgent("UA-from-config");
+        masterProfile.setProxyServer("http://proxy-from-config:8080");
+        masterProfile.setLaunchArgs(List.of(
+            "--headless=new",
+            "--user-agent=UA-from-launch-args",
+            "--proxy-server=http://proxy-from-launch-args:9090"
+        ));
+        browserProperties.setDefaultProfileId("master");
+        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
+        ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
+
+        Playwright playwright = mock(Playwright.class);
+        BrowserType browserType = mock(BrowserType.class);
+        BrowserContext browserContext = mock(BrowserContext.class);
+        when(playwright.chromium()).thenReturn(browserType);
+        ArgumentCaptor<BrowserType.LaunchPersistentContextOptions> optionsCaptor =
+            ArgumentCaptor.forClass(BrowserType.LaunchPersistentContextOptions.class);
+        when(browserType.launchPersistentContext(any(Path.class), optionsCaptor.capture()))
+            .thenReturn(browserContext);
+        when(browserContext.pages()).thenReturn(List.of());
+
+        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
+        runtime.open("master");
+
+        BrowserType.LaunchPersistentContextOptions options = optionsCaptor.getValue();
+        assertThat(options.headless).isFalse();
+        assertThat(options.args).contains("--headless=new");
+        assertThat(options.args).contains("--user-agent=UA-from-launch-args");
+        assertThat(options.args).contains("--proxy-server=http://proxy-from-launch-args:9090");
+        assertThat(options.userAgent).isEqualTo("UA-from-config");
+        assertThat(options.proxy).isNotNull();
+        assertThat(options.proxy.server).isEqualTo("http://proxy-from-config:8080");
     }
 
     @Test

@@ -1,6 +1,5 @@
 package fun.fengwk.mmh.core.service.browser.runtime;
 
-import fun.fengwk.convention4j.common.lang.StringUtils;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserStealthSupport;
 import fun.fengwk.mmh.core.service.browser.coordination.LoginLockManager;
@@ -9,21 +8,17 @@ import fun.fengwk.mmh.core.service.scrape.runtime.MasterProfileLockedException;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Playwright;
-import com.microsoft.playwright.options.Proxy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -197,12 +192,7 @@ public abstract class BrowserWorkerPool {
         return false;
     }
 
-    /**
-     * Whether this pool should launch browser contexts in headless mode.
-     */
-    protected boolean resolveHeadlessMode() {
-        return true;
-    }
+    protected abstract BrowserProperties.BrowserProfileProperties resolveProfileProperties();
 
     /**
      * Whether worker should be retained in idle queue after each task.
@@ -379,77 +369,13 @@ public abstract class BrowserWorkerPool {
     }
 
     private BrowserType.LaunchPersistentContextOptions buildContextOptions() {
-        BrowserType.LaunchPersistentContextOptions options = new BrowserType.LaunchPersistentContextOptions()
-            .setHeadless(resolveHeadlessMode());
-
-        if (browserProperties.isIgnoreAllDefaultArgs()) {
-            options.setIgnoreAllDefaultArgs(true);
-        } else if (browserProperties.getIgnoreDefaultArgs() != null
-            && !browserProperties.getIgnoreDefaultArgs().isEmpty()) {
-            options.setIgnoreDefaultArgs(browserProperties.getIgnoreDefaultArgs());
-        }
-
-        if (browserProperties.getLaunchArgs() != null && !browserProperties.getLaunchArgs().isEmpty()) {
-            options.setArgs(browserProperties.getLaunchArgs());
-        }
-
-        if (StringUtils.isNotBlank(browserProperties.getBrowserChannel())) {
-            options.setChannel(browserProperties.getBrowserChannel());
-        }
-
-        if (StringUtils.isNotBlank(browserProperties.getExecutablePath())) {
-            options.setExecutablePath(Paths.get(browserProperties.getExecutablePath()));
-        }
-
-        String userAgent = resolveUserAgent();
-        if (StringUtils.isNotBlank(userAgent)) {
-            options.setUserAgent(userAgent);
-        }
-        if (StringUtils.isNotBlank(browserProperties.getLocale())) {
-            options.setLocale(browserProperties.getLocale());
-        }
-        if (StringUtils.isNotBlank(browserProperties.getTimezoneId())) {
-            options.setTimezoneId(browserProperties.getTimezoneId());
-        }
-
-        Map<String, String> headers = new HashMap<>();
-        if (browserProperties.getExtraHeaders() != null) {
-            browserProperties.getExtraHeaders().forEach((key, value) -> {
-                if (StringUtils.isNotBlank(key) && StringUtils.isNotBlank(value)) {
-                    headers.put(key, value);
-                }
-            });
-        }
-        if (StringUtils.isNotBlank(browserProperties.getAcceptLanguage())) {
-            headers.putIfAbsent("Accept-Language", browserProperties.getAcceptLanguage());
-        }
-        if (!headers.isEmpty()) {
-            options.setExtraHTTPHeaders(headers);
-        }
-
-        if (StringUtils.isNotBlank(browserProperties.getProxyServer())) {
-            Proxy proxy = new Proxy(browserProperties.getProxyServer());
-            if (StringUtils.isNotBlank(browserProperties.getProxyUsername())) {
-                proxy.setUsername(browserProperties.getProxyUsername());
-            }
-            if (StringUtils.isNotBlank(browserProperties.getProxyPassword())) {
-                proxy.setPassword(browserProperties.getProxyPassword());
-            }
-            options.setProxy(proxy);
-        }
-
-        return options;
-    }
-
-    private String resolveUserAgent() {
-        if (StringUtils.isNotBlank(browserProperties.getUserAgent())) {
-            return browserProperties.getUserAgent();
-        }
-        List<String> userAgents = browserProperties.getUserAgents();
-        if (userAgents == null || userAgents.isEmpty()) {
-            return "";
-        }
-        return userAgents.get(ThreadLocalRandom.current().nextInt(userAgents.size()));
+        BrowserProperties.BrowserProfileProperties profileProperties = resolveProfileProperties();
+        return BrowserContextOptionsSupport.buildContextOptions(
+            profileProperties,
+            profileProperties.isHeadless(),
+            profileProperties.getLaunchArgs(),
+            false
+        );
     }
 
     private void closeWorkerAndReleaseSlot(BrowserWorker worker) {

@@ -56,52 +56,94 @@ mmh:
       # Request method: GET/POST
       method: POST
   browser:
-    # Browser channel, e.g. chrome, msedge
-    browser-channel: ""
-    # Browser executable path
-    executable-path: ""
-    # Extra launch args for browser
-    launch-args: []
-    # Ignore default args for browser launch
-    ignore-default-args:
-      - "--enable-automation"
-    # Ignore all default args for browser launch
-    ignore-all-default-args: false
+    # Default profile browser runtime settings
+    default-profile:
+      # Browser channel, e.g. chrome, msedge
+      browser-channel: ""
+      # Browser executable path
+      executable-path: ""
+      # Extra launch args for browser
+      launch-args:
+        - "--disable-gpu"
+      # Ignore default args for browser launch
+      ignore-default-args:
+        - "--enable-automation"
+      # Ignore all default args for browser launch
+      ignore-all-default-args: false
+      # Whether this profile runs in headless mode
+      headless: true
+      # Fixed user agent for browser context
+      user-agent: ""
+      # User agent pool for random rotation
+      user-agents:
+        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
+        - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      # Optional Accept-Language header
+      accept-language: ""
+      # Optional locale for browser context
+      locale: ""
+      # Optional timezone id for browser context
+      timezone-id: ""
+      # Extra headers for browser context
+      extra-headers: {}
+      # Proxy server address, e.g. http://host:port
+      proxy-server: ""
+      # Proxy username (optional)
+      proxy-username: ""
+      # Proxy password (optional)
+      proxy-password: ""
+    # Master profile browser runtime settings
+    master-profile:
+      # Browser channel, e.g. chrome, msedge
+      browser-channel: ""
+      # Browser executable path
+      executable-path: ""
+      # Extra launch args for browser
+      launch-args:
+        - "--disable-gpu"
+      # Ignore default args for browser launch
+      ignore-default-args:
+        - "--enable-automation"
+      # Ignore all default args for browser launch
+      ignore-all-default-args: false
+      # Whether this profile runs in headless mode
+      headless: true
+      # Fixed user agent for browser context
+      user-agent: ""
+      # User agent pool for random rotation
+      user-agents:
+        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
+        - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      # Optional Accept-Language header
+      accept-language: ""
+      # Optional locale for browser context
+      locale: ""
+      # Optional timezone id for browser context
+      timezone-id: ""
+      # Extra headers for browser context
+      extra-headers: {}
+      # Proxy server address, e.g. http://host:port
+      proxy-server: ""
+      # Proxy username (optional)
+      proxy-username: ""
+      # Proxy password (optional)
+      proxy-password: ""
     # Enable stealth script
     stealth-enabled: true
     # Custom stealth script (empty uses default)
     stealth-script: ""
-    # Fixed user agent for browser context
-    user-agent: ""
-    # User agent pool for random rotation
-    user-agents:
-      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
-      - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    # Optional Accept-Language header
-    accept-language: ""
-    # Optional locale for browser context
-    locale: ""
-    # Optional timezone id for browser context
-    timezone-id: ""
-    # Extra headers for browser context
-    extra-headers: {}
-    # Proxy server address, e.g. http://host:port
-    proxy-server: ""
-    # Proxy username (optional)
-    proxy-username: ""
-    # Proxy password (optional)
-    proxy-password: ""
     # Min worker count per process
     worker-pool-min-size-per-process: 0
     # Max worker count per process
     worker-pool-max-size-per-process: 5
     # Wait time to acquire an idle worker
     queue-offer-timeout-ms: 15000
-    # Default/slave MCP workers run headless (set false to observe browser window)
-    slave-headless: true
     # profile id validation regex
     profile-id-regex: ^[a-zA-Z0-9._-]{1,64}$
     # Default profile id for browser tasks
