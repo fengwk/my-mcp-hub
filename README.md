@@ -132,7 +132,8 @@ scripts\mmh-cli.cmd open-browser
     - `accept-language` / `locale` / `timezone-id`
     - `extra-headers` / `proxy-server` / `proxy-username` / `proxy-password`
   - 运行时公共参数：
-    - `mmh.browser.worker-pool-max-size-per-process`（默认 `5`）
+    - `mmh.browser.worker-pool-min-size`（默认 `0`）
+    - `mmh.browser.worker-pool-max-size`（默认 `5`）
     - `mmh.browser.queue-offer-timeout-ms`（默认 `15000`）
     - `mmh.browser.master-profile-lock-timeout-ms`（默认 `2000`）
     - `mmh.browser.default-profile-id`（默认 `master`）
@@ -143,6 +144,10 @@ scripts\mmh-cli.cmd open-browser
     - `mmh.browser.master-login-navigate-timeout-ms`
     - `mmh.browser.master-login-refresh-interval-ms`
     - `mmh.browser.master-login-timeout-ms`
+  - 常用环境变量覆盖：
+    - `MMH_BROWSER_WORKER_POOL_MIN_SIZE`
+    - `MMH_BROWSER_WORKER_POOL_MAX_SIZE`
+    - `MMH_BROWSER_FORCE_DEVICE_SCALE_FACTOR`
 - Scrape 业务层（`mmh.scrape.*`，负责导航/等待/内容提取）
   - `mmh.scrape.navigate-timeout-ms`（默认 `30000`）
   - `mmh.scrape.direct-media-probe-timeout-ms`（默认 `10000`）
@@ -206,7 +211,8 @@ env JAVA_HOME=$JAVA_HOME_17 mvn clean verify
 
 优先调大并发容量与等待时间：
 
-- `mmh.browser.worker-pool-max-size-per-process`
+- `mmh.browser.worker-pool-max-size`
+- `mmh.browser.worker-pool-min-size`
 - `mmh.browser.queue-offer-timeout-ms`
 
 ### 3) 某些站点偶发 `MCP error -32001: Request timed out`？

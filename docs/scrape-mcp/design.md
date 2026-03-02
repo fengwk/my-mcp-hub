@@ -93,8 +93,8 @@ Includes:
   - `default-profile-id`
   - `master-user-data-root`
   - `profile-id-regex`
-  - `worker-pool-min-size-per-process`
-  - `worker-pool-max-size-per-process`
+  - `worker-pool-min-size`
+  - `worker-pool-max-size`
   - `queue-offer-timeout-ms`
 - Master login command behavior:
   - `master-login-args`

@@ -138,10 +138,10 @@ mmh:
     stealth-enabled: true
     # Custom stealth script (empty uses default)
     stealth-script: ""
-    # Min worker count per process
-    worker-pool-min-size-per-process: 0
-    # Max worker count per process
-    worker-pool-max-size-per-process: 5
+    # Minimum worker count for default pool
+    worker-pool-min-size: ${MMH_BROWSER_WORKER_POOL_MIN_SIZE:0}
+    # Maximum worker count for default pool
+    worker-pool-max-size: ${MMH_BROWSER_WORKER_POOL_MAX_SIZE:5}
     # Wait time to acquire an idle worker
     queue-offer-timeout-ms: 15000
     # profile id validation regex
@@ -151,7 +151,7 @@ mmh:
     # Root directory for persistent browser profile data
     master-user-data-root: ${MMH_BROWSER_MASTER_USER_DATA_ROOT:${user.home}/.my-mcp-hub/browser-data}
     # Extra args for manual master login browser
-    master-login-args: ["--force-device-scale-factor=${FORCE_DEVICE_SCALE_FACTOR:1}", "--lang=zh-CN"]
+    master-login-args: ["--force-device-scale-factor=${MMH_BROWSER_FORCE_DEVICE_SCALE_FACTOR:1}", "--lang=zh-CN"]
     # Initial page url for manual master login
     master-login-initial-page-url: "https://google.com"
     # Navigate timeout for manual master login initial page

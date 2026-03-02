@@ -228,9 +228,9 @@ public class MmhScrapeStressTest {
     public void stressTestRound2() throws Exception {
         log.info("=== mmh_scrape 高并发压测 - 第二轮 ===");
         log.info(
-            "配置：queue-offer-timeout-ms={}, worker-pool-max-size-per-process={}, 并发={}, 轮数={}",
+            "配置：queue-offer-timeout-ms={}, worker-pool-max-size={}, 并发={}, 轮数={}",
             browserProperties.getQueueOfferTimeoutMs(),
-            browserProperties.getWorkerPoolMaxSizePerProcess(),
+            browserProperties.getWorkerPoolMaxSize(),
             CONCURRENT_PER_ROUND,
             ROUNDS
         );

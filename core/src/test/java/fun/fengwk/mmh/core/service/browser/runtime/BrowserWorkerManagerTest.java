@@ -37,8 +37,8 @@ public class BrowserWorkerManagerTest {
     @Test
     public void shouldExecuteDefaultTaskSuccessfully() {
         BrowserProperties properties = new BrowserProperties();
-        properties.setWorkerPoolMinSizePerProcess(1);
-        properties.setWorkerPoolMaxSizePerProcess(1);
+        properties.setWorkerPoolMinSize(1);
+        properties.setWorkerPoolMaxSize(1);
         properties.setQueueOfferTimeoutMs(100);
         properties.setDefaultProfileId("master");
         properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
@@ -57,8 +57,8 @@ public class BrowserWorkerManagerTest {
     @Test
     public void shouldPropagateDefaultTaskFailure() {
         BrowserProperties properties = new BrowserProperties();
-        properties.setWorkerPoolMinSizePerProcess(1);
-        properties.setWorkerPoolMaxSizePerProcess(1);
+        properties.setWorkerPoolMinSize(1);
+        properties.setWorkerPoolMaxSize(1);
         properties.setQueueOfferTimeoutMs(100);
         properties.setDefaultProfileId("master");
         properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
@@ -79,8 +79,8 @@ public class BrowserWorkerManagerTest {
     @Test
     public void shouldPropagateMasterProfileLockedException() {
         BrowserProperties properties = new BrowserProperties();
-        properties.setWorkerPoolMinSizePerProcess(0);
-        properties.setWorkerPoolMaxSizePerProcess(1);
+        properties.setWorkerPoolMinSize(0);
+        properties.setWorkerPoolMaxSize(1);
         properties.setQueueOfferTimeoutMs(100);
         properties.setDefaultProfileId("master");
         properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());

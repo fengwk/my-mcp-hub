@@ -28,14 +28,14 @@ public class BrowserProperties {
     );
 
     /**
-     * Min worker count per MCP process.
+     * Minimum worker count for default pool.
      */
-    private int workerPoolMinSizePerProcess = 0;
+    private int workerPoolMinSize = 0;
 
     /**
-     * Max worker count per MCP process.
+     * Maximum worker count for default pool.
      */
-    private int workerPoolMaxSizePerProcess = 5;
+    private int workerPoolMaxSize = 5;
 
     /**
      * Timeout when waiting for an idle worker.

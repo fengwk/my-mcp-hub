@@ -66,8 +66,8 @@ public class BrowserWorkerManager {
 
     private WorkerPoolConfig buildDefaultPoolConfig(BrowserProperties browserProperties) {
         return WorkerPoolConfig.builder()
-            .minWorkers(browserProperties.getWorkerPoolMinSizePerProcess())
-            .maxWorkers(browserProperties.getWorkerPoolMaxSizePerProcess())
+            .minWorkers(browserProperties.getWorkerPoolMinSize())
+            .maxWorkers(browserProperties.getWorkerPoolMaxSize())
             .queueTimeoutMs(browserProperties.getQueueOfferTimeoutMs())
             .build();
     }
