@@ -2,12 +2,14 @@ package fun.fengwk.mmh.core.service.browser;
 
 import com.microsoft.playwright.BrowserContext;
 import fun.fengwk.convention4j.common.lang.StringUtils;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Stealth script helper for browser context.
  *
  * @author fengwk
  */
+@Slf4j
 public final class BrowserStealthSupport {
 
     static final String DEFAULT_STEALTH_SCRIPT = """
@@ -45,7 +47,12 @@ public final class BrowserStealthSupport {
         if (StringUtils.isBlank(script)) {
             return;
         }
-        context.addInitScript(script);
+        try {
+            context.addInitScript(script);
+        } catch (Exception ex) {
+            // Stealth script is best-effort and should not abort browser startup.
+            log.warn("failed to apply stealth script, error={}", ex.getMessage());
+        }
     }
 
 }

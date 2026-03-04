@@ -114,12 +114,12 @@ public class DefaultBrowserWorkerPool extends BrowserWorkerPool {
                     try {
                         Files.deleteIfExists(path);
                     } catch (Exception ex) {
-                        throw new IllegalStateException("failed to delete path: " + path, ex);
+                        log.warn("failed to delete zombie profile path, path={}, error={}", path, ex.getMessage());
                     }
                 });
             log.info("cleaned zombie slave profile dir: {}", profileDir);
         } catch (Exception ex) {
-            log.error(
+            log.warn(
                 "failed to cleanup zombie slave profile, profileName={}, ownerPid={}, profileDir={}, error={}",
                 profileName,
                 ownerPid,
@@ -127,7 +127,6 @@ public class DefaultBrowserWorkerPool extends BrowserWorkerPool {
                 ex.getMessage(),
                 ex
             );
-            throw new IllegalStateException("failed to cleanup zombie profile " + profileName + ": " + ex.getMessage(), ex);
         }
     }
 

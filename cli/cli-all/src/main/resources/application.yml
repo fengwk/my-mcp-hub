@@ -148,8 +148,6 @@ mmh:
     profile-id-regex: ^[a-zA-Z0-9._-]{1,64}$
     # Default profile id for browser tasks
     default-profile-id: master
-    # Root directory for persistent browser profile data
-    master-user-data-root: ${MMH_BROWSER_MASTER_USER_DATA_ROOT:${user.home}/.my-mcp-hub/browser-data}
     # Extra args for manual master login browser
     master-login-args: ["--force-device-scale-factor=${MMH_BROWSER_FORCE_DEVICE_SCALE_FACTOR:1}", "--lang=zh-CN"]
     # Initial page url for manual master login
@@ -181,3 +179,20 @@ mmh:
     stability-threshold: 3
     # Smart wait text-length change threshold ratio between rounds (0.1 = 10%)
     stability-length-change-threshold: 0.1
+  # Skill system configuration
+  skill:
+    # List of skill repositories, loaded in order, first match wins for same-named skills
+    repositories:
+      - enabled: true
+        type: local
+        path: ${HOME}/.config/opencode/skills
+    # Example configurations:
+    # repositories:
+    #   - enabled: true
+    #     type: local
+    #     path: /path/to/my/skills
+    #   - enabled: true
+    #     type: git
+    #     url: https://github.com/example/skills.git
+    #     branch: main
+

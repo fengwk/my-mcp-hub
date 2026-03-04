@@ -1,5 +1,6 @@
 package fun.fengwk.mmh.core.service.browser.runtime;
 
+import fun.fengwk.mmh.core.configuration.MmhProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.coordination.LoginLockManager;
 import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
@@ -34,20 +35,26 @@ public class BrowserWorkerManagerTest {
         }
     }
 
+    private MmhProperties createMmhProperties() {
+        MmhProperties mmhProperties = new MmhProperties();
+        mmhProperties.setConfigPath(tempDir.toString());
+        return mmhProperties;
+    }
+
     @Test
     public void shouldExecuteDefaultTaskSuccessfully() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties properties = new BrowserProperties();
         properties.setWorkerPoolMinSize(1);
         properties.setWorkerPoolMaxSize(1);
         properties.setQueueOfferTimeoutMs(100);
         properties.setDefaultProfileId("master");
-        properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
 
         LoginLockManager loginLockManager = mock(LoginLockManager.class);
         when(loginLockManager.tryAcquire(any(Path.class), anyLong(), anyLong()))
             .thenReturn(mock(LoginLockManager.LoginLock.class));
 
-        manager = new BrowserWorkerManager(properties, loginLockManager, new ProfileIdValidator(properties));
+        manager = new BrowserWorkerManager(mmhProperties, properties, loginLockManager, new ProfileIdValidator(properties));
 
         String result = manager.executeDefault(context -> "ok");
 
@@ -56,18 +63,18 @@ public class BrowserWorkerManagerTest {
 
     @Test
     public void shouldPropagateDefaultTaskFailure() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties properties = new BrowserProperties();
         properties.setWorkerPoolMinSize(1);
         properties.setWorkerPoolMaxSize(1);
         properties.setQueueOfferTimeoutMs(100);
         properties.setDefaultProfileId("master");
-        properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
 
         LoginLockManager loginLockManager = mock(LoginLockManager.class);
         when(loginLockManager.tryAcquire(any(Path.class), anyLong(), anyLong()))
             .thenReturn(mock(LoginLockManager.LoginLock.class));
 
-        manager = new BrowserWorkerManager(properties, loginLockManager, new ProfileIdValidator(properties));
+        manager = new BrowserWorkerManager(mmhProperties, properties, loginLockManager, new ProfileIdValidator(properties));
 
         assertThatThrownBy(() -> manager.executeDefault(context -> {
             throw new RuntimeException("boom");
@@ -78,18 +85,18 @@ public class BrowserWorkerManagerTest {
 
     @Test
     public void shouldPropagateMasterProfileLockedException() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties properties = new BrowserProperties();
         properties.setWorkerPoolMinSize(0);
         properties.setWorkerPoolMaxSize(1);
         properties.setQueueOfferTimeoutMs(100);
         properties.setDefaultProfileId("master");
-        properties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         properties.setMasterProfileLockTimeoutMs(0);
 
         LoginLockManager loginLockManager = mock(LoginLockManager.class);
         when(loginLockManager.tryAcquire(any(Path.class), anyLong(), anyLong())).thenReturn(null);
 
-        manager = new BrowserWorkerManager(properties, loginLockManager, new ProfileIdValidator(properties));
+        manager = new BrowserWorkerManager(mmhProperties, properties, loginLockManager, new ProfileIdValidator(properties));
 
         assertThatThrownBy(() -> manager.executeMaster("master", context -> "ok"))
             .isInstanceOf(MasterProfileLockedException.class)

@@ -6,6 +6,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.WaitUntilState;
 import fun.fengwk.convention4j.common.lang.StringUtils;
+import fun.fengwk.mmh.core.configuration.MmhProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties.BrowserProfileProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserStealthSupport;
@@ -36,23 +37,27 @@ public class MasterLoginRuntime {
     private static final String NO_FIRST_RUN_ARG = "--no-first-run";
     private static final String NO_DEFAULT_BROWSER_CHECK_ARG = "--no-default-browser-check";
 
+    private final MmhProperties mmhProperties;
     private final ProfileIdValidator profileIdValidator;
     private final BrowserProperties browserProperties;
     private final PlaywrightFactory playwrightFactory;
 
     @Autowired
     public MasterLoginRuntime(
+        MmhProperties mmhProperties,
         ProfileIdValidator profileIdValidator,
         BrowserProperties browserProperties
     ) {
-        this(profileIdValidator, browserProperties, Playwright::create);
+        this(mmhProperties, profileIdValidator, browserProperties, Playwright::create);
     }
 
     MasterLoginRuntime(
+        MmhProperties mmhProperties,
         ProfileIdValidator profileIdValidator,
         BrowserProperties browserProperties,
         PlaywrightFactory playwrightFactory
     ) {
+        this.mmhProperties = mmhProperties;
         this.profileIdValidator = profileIdValidator;
         this.browserProperties = browserProperties;
         this.playwrightFactory = playwrightFactory;
@@ -113,7 +118,7 @@ public class MasterLoginRuntime {
     public Path resolveUserDataDir(String profileId) {
         try {
             String normalizedProfileId = profileIdValidator.normalizeProfileId(profileId);
-            Path rootDir = Paths.get(browserProperties.getMasterUserDataRoot()).toAbsolutePath().normalize();
+            Path rootDir = Paths.get(mmhProperties.getBrowserDataPath()).toAbsolutePath().normalize();
             Path userDataDir = rootDir.resolve(normalizedProfileId).normalize();
             if (!userDataDir.startsWith(rootDir)) {
                 throw new IllegalArgumentException("invalid user data dir path");
@@ -146,25 +151,51 @@ public class MasterLoginRuntime {
             return;
         }
         Page page = resolveInitialPage(context);
-        page.navigate(initialPageUrl,
-            new Page.NavigateOptions()
-                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
-                .setTimeout((double) browserProperties.getMasterLoginNavigateTimeoutMs())
-        );
+        try {
+            page.navigate(initialPageUrl,
+                new Page.NavigateOptions()
+                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                    .setTimeout((double) browserProperties.getMasterLoginNavigateTimeoutMs())
+            );
+        } catch (Exception ex) {
+            // Navigation to the initial page is best-effort; user may have navigated away
+            // before the page finished loading. This should not abort the session.
+            log.warn("initial page navigation interrupted, url={}, error={}", initialPageUrl, ex.getMessage());
+        }
     }
 
     private Page resolveInitialPage(BrowserContext context) {
         long waitDeadline = System.currentTimeMillis() + 500;
         while (System.currentTimeMillis() < waitDeadline) {
-            if (!context.pages().isEmpty()) {
-                return context.pages().get(0);
+            Page page = firstPageIfPresent(context);
+            if (page != null) {
+                return page;
             }
             sleep(50);
         }
-        if (!context.pages().isEmpty()) {
-            return context.pages().get(0);
+        Page page = firstPageIfPresent(context);
+        if (page != null) {
+            return page;
         }
         return context.newPage();
+    }
+
+    private Page firstPageIfPresent(BrowserContext context) {
+        List<Page> pages;
+        try {
+            pages = context.pages();
+        } catch (Exception ex) {
+            return null;
+        }
+        if (pages == null || pages.isEmpty()) {
+            return null;
+        }
+        try {
+            return pages.get(0);
+        } catch (IndexOutOfBoundsException ex) {
+            // The first page can disappear between emptiness check and index access.
+            return null;
+        }
     }
 
     private void sleep(long millis) {

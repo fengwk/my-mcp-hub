@@ -1,5 +1,6 @@
 package fun.fengwk.mmh.core.service.browser.runtime;
 
+import fun.fengwk.mmh.core.configuration.MmhProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.coordination.LoginLockManager;
 import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
@@ -24,12 +25,13 @@ public class BrowserWorkerManager {
 
     @Autowired
     public BrowserWorkerManager(
+        MmhProperties mmhProperties,
         BrowserProperties browserProperties,
         LoginLockManager loginLockManager,
         ProfileIdValidator profileIdValidator
     ) {
         WorkerPoolConfig defaultPoolConfig = buildDefaultPoolConfig(browserProperties);
-        Path profileRoot = Paths.get(browserProperties.getMasterUserDataRoot()).toAbsolutePath().normalize();
+        Path profileRoot = Paths.get(mmhProperties.getBrowserDataPath()).toAbsolutePath().normalize();
         this.masterProfileId = profileIdValidator.normalizeProfileId(browserProperties.getDefaultProfileId());
 
         this.defaultPool = new DefaultBrowserWorkerPool(

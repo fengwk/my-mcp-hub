@@ -1,4 +1,4 @@
-package fun.fengwk.mmh.core.configuration;
+package fun.fengwk.mmh.core.mcp;
 
 import fun.fengwk.convention4j.common.lang.StringUtils;
 import fun.fengwk.mmh.core.service.browser.runtime.ProfileType;
@@ -24,7 +24,7 @@ import java.util.Map;
 @Slf4j
 @Configuration
 @ConditionalOnProperty(prefix = "spring.ai.mcp.server", name = "enabled", havingValue = "true", matchIfMissing = true)
-public class ScrapeToolSpecificationConfiguration {
+public class ScrapeMcpConfiguration {
 
     private static final List<String> SUPPORTED_FORMATS = List.of("markdown", "links", "screenshot", "fullscreenshot");
 

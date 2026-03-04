@@ -34,7 +34,7 @@ public class LoginLockManager {
             return new LoginLock(channel, lock);
         } catch (Exception ex) {
             log.warn("failed to acquire login lock, lockPath={}, error={}", lockPath, ex.getMessage(), ex);
-            throw new IllegalStateException("failed to acquire login lock: " + ex.getMessage(), ex);
+            return null;
         }
     }
 

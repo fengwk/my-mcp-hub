@@ -53,11 +53,6 @@ public class BrowserProperties {
     private String defaultProfileId = "master";
 
     /**
-     * Root directory for persistent browser profile data.
-     */
-    private String masterUserDataRoot = System.getProperty("user.home") + "/.my-mcp-hub/browser-data";
-
-    /**
      * Extra browser args for manual master login command.
      */
     private List<String> masterLoginArgs = new ArrayList<>();

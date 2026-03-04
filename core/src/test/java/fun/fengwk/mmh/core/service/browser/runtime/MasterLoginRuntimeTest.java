@@ -4,6 +4,7 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import fun.fengwk.mmh.core.configuration.MmhProperties;
 import fun.fengwk.mmh.core.service.browser.BrowserProperties;
 import fun.fengwk.mmh.core.service.browser.coordination.ProfileIdValidator;
 import org.junit.jupiter.api.Test;
@@ -32,13 +33,19 @@ public class MasterLoginRuntimeTest {
     @TempDir
     Path tempDir;
 
+    private MmhProperties createMmhProperties() {
+        MmhProperties mmhProperties = new MmhProperties();
+        mmhProperties.setConfigPath(tempDir.toString());
+        return mmhProperties;
+    }
+
     @Test
     public void shouldResolveUserDataDirFromMasterUserDataRoot() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties browserProperties = new BrowserProperties();
         browserProperties.setDefaultProfileId("master");
-        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
-        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(mmhProperties, validator, browserProperties);
 
         Path userDataDir = runtime.resolveUserDataDir("master");
 
@@ -48,9 +55,9 @@ public class MasterLoginRuntimeTest {
 
     @Test
     public void shouldClosePlaywrightWhenOpenFailed() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties browserProperties = new BrowserProperties();
         browserProperties.setDefaultProfileId("master");
-        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         Playwright playwright = mock(Playwright.class);
@@ -59,7 +66,7 @@ public class MasterLoginRuntimeTest {
         when(browserType.launchPersistentContext(any(Path.class), any(BrowserType.LaunchPersistentContextOptions.class)))
             .thenThrow(new RuntimeException("boom"));
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(mmhProperties, validator, browserProperties, () -> playwright);
 
         assertThatThrownBy(() -> runtime.open("master"))
             .isInstanceOf(IllegalStateException.class)
@@ -69,6 +76,7 @@ public class MasterLoginRuntimeTest {
 
     @Test
     public void shouldApplyLoginArgsAndInitialPage() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties browserProperties = new BrowserProperties();
         Path chromePath = tempDir.resolve("chrome-bin");
         BrowserProperties.BrowserProfileProperties masterProfile = browserProperties.resolveMasterProfile();
@@ -82,7 +90,6 @@ public class MasterLoginRuntimeTest {
         masterProfile.setExecutablePath(chromePath.toString());
         masterProfile.setIgnoreDefaultArgs(List.of("--enable-automation"));
         browserProperties.setDefaultProfileId("master");
-        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         browserProperties.setMasterLoginArgs(List.of("--force-device-scale-factor=2"));
         browserProperties.setMasterLoginInitialPageUrl("https://example.com");
         browserProperties.setMasterLoginNavigateTimeoutMs(2000);
@@ -99,7 +106,7 @@ public class MasterLoginRuntimeTest {
             .thenReturn(browserContext);
         when(browserContext.pages()).thenReturn(List.of(page));
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(mmhProperties, validator, browserProperties, () -> playwright);
         MasterLoginRuntime.HeadedSession session = runtime.open("master");
 
         assertThat(session.context()).isEqualTo(browserContext);
@@ -121,6 +128,7 @@ public class MasterLoginRuntimeTest {
 
     @Test
     public void shouldKeepTypedSettingsWhenLaunchArgsContainConflictingFlags() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties browserProperties = new BrowserProperties();
         BrowserProperties.BrowserProfileProperties masterProfile = browserProperties.resolveMasterProfile();
         masterProfile.setHeadless(false);
@@ -132,7 +140,6 @@ public class MasterLoginRuntimeTest {
             "--proxy-server=http://proxy-from-launch-args:9090"
         ));
         browserProperties.setDefaultProfileId("master");
-        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
         Playwright playwright = mock(Playwright.class);
@@ -145,7 +152,7 @@ public class MasterLoginRuntimeTest {
             .thenReturn(browserContext);
         when(browserContext.pages()).thenReturn(List.of());
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(mmhProperties, validator, browserProperties, () -> playwright);
         runtime.open("master");
 
         BrowserType.LaunchPersistentContextOptions options = optionsCaptor.getValue();
@@ -160,9 +167,9 @@ public class MasterLoginRuntimeTest {
 
     @Test
     public void shouldReuseAutoCreatedPageIfAvailable() {
+        MmhProperties mmhProperties = createMmhProperties();
         BrowserProperties browserProperties = new BrowserProperties();
         browserProperties.setDefaultProfileId("master");
-        browserProperties.setMasterUserDataRoot(tempDir.resolve("browser-data").toString());
         browserProperties.setMasterLoginInitialPageUrl("https://example.com");
         ProfileIdValidator validator = new ProfileIdValidator(browserProperties);
 
@@ -175,7 +182,7 @@ public class MasterLoginRuntimeTest {
             .thenReturn(browserContext);
         when(browserContext.pages()).thenReturn(List.of(), List.of(page));
 
-        MasterLoginRuntime runtime = new MasterLoginRuntime(validator, browserProperties, () -> playwright);
+        MasterLoginRuntime runtime = new MasterLoginRuntime(mmhProperties, validator, browserProperties, () -> playwright);
         runtime.open("master");
 
         verify(browserContext, never()).newPage();
