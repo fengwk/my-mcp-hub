@@ -4,6 +4,7 @@ import fun.fengwk.mmh.core.facade.search.SearchFacade;
 import fun.fengwk.mmh.core.facade.search.model.SearchRequest;
 import fun.fengwk.mmh.core.facade.search.model.SearchResponse;
 import fun.fengwk.mmh.core.service.UtilMcpService;
+import fun.fengwk.mmh.core.service.model.CreateTempDirResponse;
 import fun.fengwk.mmh.core.service.scrape.PageScrapeService;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeRequest;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
@@ -36,12 +37,16 @@ public class UtilMcpServiceImpl implements UtilMcpService {
     }
 
     @Override
-    public String createTempDir() {
+    public CreateTempDirResponse createTempDir() {
         try {
             Path tempDir = Files.createTempDirectory("mmh-");
-            return tempDir.toAbsolutePath().toString();
+            return CreateTempDirResponse.builder()
+                .path(tempDir.toAbsolutePath().toString())
+                .build();
         } catch (IOException e) {
-            return "create temp dir error: " + e.getMessage();
+            return CreateTempDirResponse.builder()
+                .error("create temp dir error: " + e.getMessage())
+                .build();
         }
     }
 

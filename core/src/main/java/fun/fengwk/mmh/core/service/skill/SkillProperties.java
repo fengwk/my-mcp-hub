@@ -18,6 +18,11 @@ import java.util.List;
 public class SkillProperties {
 
     /**
+     * 是否启用 skill MCP tool 注册，默认关闭。
+     */
+    private boolean mcpToolEnabled = false;
+
+    /**
      * Skill 仓库配置列表，按顺序加载，同名 Skill 取第一个
      */
     private List<RepositoryConfig> repositories = new ArrayList<>();

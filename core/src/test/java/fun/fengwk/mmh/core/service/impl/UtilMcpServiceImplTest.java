@@ -11,6 +11,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
@@ -74,6 +77,18 @@ public class UtilMcpServiceImplTest {
         assertThat(captor.getValue().getProfileMode()).isEqualTo("master");
         assertThat(captor.getValue().getOnlyMainContent()).isTrue();
         assertThat(captor.getValue().getWaitFor()).isEqualTo(100);
+    }
+
+    @Test
+    public void testCreateTempDir() throws Exception {
+        var result = utilMcpService.createTempDir();
+
+        assertThat(result.getError()).isNull();
+        assertThat(result.getPath()).isNotBlank();
+        Path tempPath = Path.of(result.getPath());
+        assertThat(Files.exists(tempPath)).isTrue();
+
+        Files.deleteIfExists(tempPath);
     }
 
 }

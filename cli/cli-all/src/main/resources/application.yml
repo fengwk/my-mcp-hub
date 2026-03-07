@@ -181,6 +181,8 @@ mmh:
     stability-length-change-threshold: 0.1
   # Skill system configuration
   skill:
+    # Enable MCP skill tool registration (kept off by default for now)
+    mcp-tool-enabled: false
     # List of skill repositories, loaded in order, first match wins for same-named skills
     repositories:
       - enabled: true
@@ -195,4 +197,3 @@ mmh:
     #     type: git
     #     url: https://github.com/example/skills.git
     #     branch: main
-

@@ -1,6 +1,7 @@
-package fun.fengwk.mmh.core.configuration;
+package fun.fengwk.mmh.core.mcp;
 
 import fun.fengwk.mmh.core.service.UtilMcpService;
+import fun.fengwk.mmh.core.service.skill.SkillProperties;
 import fun.fengwk.mmh.core.service.scrape.model.ScrapeResponse;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -9,7 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,7 +18,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-public class ScrapeToolSpecificationConfigurationTest {
+public class ScrapeMcpHandlerTest {
 
     @Mock
     private UtilMcpService utilMcpService;
@@ -33,8 +33,7 @@ public class ScrapeToolSpecificationConfigurationTest {
             .build();
         when(utilMcpService.scrape("https://example.com/a.webp", null, null, null, null)).thenReturn(response);
 
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest("scrape", Map.of("url", "https://example.com/a.webp"))
         );
@@ -58,8 +57,7 @@ public class ScrapeToolSpecificationConfigurationTest {
             .build();
         when(utilMcpService.scrape("https://example.com/a.pdf", null, null, null, null)).thenReturn(response);
 
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest("scrape", Map.of("url", "https://example.com/a.pdf"))
         );
@@ -87,8 +85,7 @@ public class ScrapeToolSpecificationConfigurationTest {
             .build();
         when(utilMcpService.scrape("https://example.com/doc", "markdown", true, null, "master")).thenReturn(response);
 
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -121,8 +118,7 @@ public class ScrapeToolSpecificationConfigurationTest {
             .build();
         when(utilMcpService.scrape("https://example.com/wait", "markdown", false, 250, "default")).thenReturn(response);
 
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -153,8 +149,7 @@ public class ScrapeToolSpecificationConfigurationTest {
             .build();
         when(utilMcpService.scrape("https://example.com/trim", "markdown", null, null, null)).thenReturn(response);
 
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -171,8 +166,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsHtmlFormatWithSupportedHints() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -193,8 +187,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsNonIntegerWaitFor() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -215,8 +208,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsNonBooleanOnlyMainContent() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -237,8 +229,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsNonStringUrl() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -258,8 +249,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsNonStringFormat() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -280,8 +270,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsNonStringProfileMode() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -302,8 +291,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsWaitForOutOfRange() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -324,8 +312,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsUnsupportedProtocol() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -345,8 +332,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsUnsupportedFormat() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -367,8 +353,7 @@ public class ScrapeToolSpecificationConfigurationTest {
 
     @Test
     public void testScrapeRejectsUnsupportedProfileMode() {
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest(
                 "scrape",
@@ -397,8 +382,7 @@ public class ScrapeToolSpecificationConfigurationTest {
             .build();
         when(utilMcpService.scrape("https://example.com/error", null, null, null, null)).thenReturn(response);
 
-        McpServerFeatures.SyncToolSpecification specification = buildSpecification();
-        McpSchema.CallToolResult result = specification.callHandler().apply(
+        McpSchema.CallToolResult result = buildSpecification().callHandler().apply(
             null,
             new McpSchema.CallToolRequest("scrape", Map.of("url", "https://example.com/error"))
         );
@@ -415,11 +399,16 @@ public class ScrapeToolSpecificationConfigurationTest {
     }
 
     private McpServerFeatures.SyncToolSpecification buildSpecification() {
-        ScrapeToolSpecificationConfiguration configuration = new ScrapeToolSpecificationConfiguration();
-        List<McpServerFeatures.SyncToolSpecification> specifications = configuration.scrapeToolSpecifications(utilMcpService);
-        assertThat(specifications).hasSize(1);
-        assertThat(specifications.get(0).tool().name()).isEqualTo("scrape");
-        return specifications.get(0);
+        McpToolConfiguration configuration = new McpToolConfiguration();
+        SkillProperties skillProperties = new SkillProperties();
+        return configuration.explicitToolSpecifications(
+                skillProperties,
+                null,
+                null,
+                new ScrapeMcpToolDefinition(),
+                new ScrapeMcpHandler(utilMcpService, new ScrapeMcpResultMapper())
+            )
+            .get(0);
     }
 
 }
